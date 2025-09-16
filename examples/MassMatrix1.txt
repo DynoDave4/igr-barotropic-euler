@@ -1,0 +1,27 @@
+class MassMatrix1 : public MatrixCoefficient
+{
+   private:
+      GridFunction &phi; // vector-valued GridFunction
+   public:
+      MassMatrix1(GridFunction &phi_) : MatrixCoefficient(phi_.FESpace()->GetVDim()), phi(phi_) {}
+
+   virtual void Eval(DenseMatrix &M, ElementTransformation &T, const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+	  int dim = phi.FESpace()->GetVDim();
+
+      DenseMatrix Jac;
+      phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
+
+	  DenseMatrix Jac_inv, Jac_invT;
+	  Jac_inv = Jac;
+	  Jac_inv.Invert();
+	  
+	  Jac_invT = Jac_inv;
+	  Jac_invT.Transpose();
+	  
+	  M.SetSize(dim, dim);
+	  M = 0.0;
+	  AddMult(Jac_inv, Jac_invT, M);
+   }
+};
