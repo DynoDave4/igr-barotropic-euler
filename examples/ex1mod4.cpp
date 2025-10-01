@@ -88,6 +88,7 @@ class MassMatrix1 : public MatrixCoefficient
 
       DenseMatrix Jac;
       phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
+	  Jac(0,0) += 1.0; Jac(1,1) += 1.0;
 
 	  DenseMatrix Jac_inv, Jac_invT;
 	  Jac_inv = Jac;
@@ -127,16 +128,17 @@ class LambdaDivPart : public VectorCoefficient
      //Hessian and Jacobian calculations at a point
      DenseMatrix Jac, HessX, HessY;
      phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
+	 Jac(0,0) += 1.0; Jac(1,1) += 1.0;
      gradX.GetVectorGradient(T, HessX);
      gradY.GetVectorGradient(T, HessY);
 	  DenseMatrix Jac_inv; Jac_inv = Jac; Jac_inv.Invert();
 
 	  //Ax and Ay store pieces of each hessian
 	  DenseMatrix Ax(dim, dim), Ay(dim, dim);
-     Ax(0,0) = HessX(0,0); Ax(0,1) = HessX(0,1);
-     Ay(0,0) = HessX(1,0); Ay(0,1) = HessX(1,1);
-     Ax(1,0) = HessY(0,0); Ax(1,1) = HessY(0,1);
-     Ay(1,0) = HessY(1,0); Ay(1,1) = HessY(1,1);
+      Ax(0,0) = HessX(0,0); Ax(0,1) = HessX(0,1);
+      Ay(0,0) = HessX(1,0); Ay(0,1) = HessX(1,1);
+      Ax(1,0) = HessY(0,0); Ax(1,1) = HessY(0,1);
+      Ay(1,0) = HessY(1,0); Ay(1,1) = HessY(1,1);
 	  
 	  //Multiply by the inverse Jacobian
 	  DenseMatrix Bx(dim, dim), By(dim, dim);
@@ -145,7 +147,7 @@ class LambdaDivPart : public VectorCoefficient
 	  
      //Multiply by the inverse Jacobian again, this is the (-) derivative of the inverse of the hessian
 	  DenseMatrix Cx(dim, dim), Cy(dim, dim);
-     Cx = 0.0; AddMult(Jac_inv, Bx, Cx);  // Cx = [DΦ]^{-1} ∂x[DΦ] [DΦ]^{-1}
+      Cx = 0.0; AddMult(Jac_inv, Bx, Cx);  // Cx = [DΦ]^{-1} ∂x[DΦ] [DΦ]^{-1}
 	  Cy = 0.0; AddMult(Jac_inv, By, Cy);  // Cy = [DΦ]^{-1} ∂y[DΦ] [DΦ]^{-1}
 	  
      //Output
@@ -171,6 +173,7 @@ class InvJac : public MatrixCoefficient
 
       DenseMatrix Jac;
       phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
+	  Jac(0,0) += 1.0; Jac(1,1) += 1.0;
 	  
 	  M.SetSize(dim, dim);
 	  M = Jac;
@@ -181,7 +184,7 @@ class InvJac : public MatrixCoefficient
 class RHSg : public Coefficient //Takes in two terms
 {
    private:
-     GridFunction &phi; // vector-valued GridFunction
+      GridFunction &phi; // vector-valued GridFunction
 	  GridFunction &phidot; // vector-valued GridFunction
    public:
       RHSg(GridFunction &phi_, GridFunction &phidot_) : phi(phi_), phidot(phidot_) {}
@@ -192,7 +195,9 @@ class RHSg : public Coefficient //Takes in two terms
 	   int dim = phi.FESpace()->GetVDim();
 
       DenseMatrix JacInv(dim, dim), JacDot(dim, dim);
-      phi.GetVectorGradient(T, JacInv); JacInv.Invert();
+      phi.GetVectorGradient(T, JacInv); 
+	  JacInv(0,0) += 1.0; JacInv(1,1) += 1.0; 
+	  JacInv.Invert();
       phidot.GetVectorGradient(T, JacDot);
 
       DenseMatrix Mat(dim, dim), MatSqd(dim, dim);
@@ -316,17 +321,6 @@ int main(int argc, char *argv[])
    //    the external boundary attributes from the mesh as essential (Dirichlet)
    //    and converting them to a list of true dofs.
    Array<int> ess_tdof_list;
-   if (mesh.bdr_attributes.Size())
-   {
-      Array<int> ess_bdr(mesh.bdr_attributes.Max());
-      ess_bdr = 0;
-      // Apply boundary conditions on all external boundaries:
-      mesh.MarkExternalBoundaries(ess_bdr);
-      // Boundary conditions can also be applied based on named attributes:
-      // mesh.MarkNamedBoundaries(set_name, ess_bdr)
-
-      fespace.GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
-   }
 
    //Start Timer
    auto start = chrono::high_resolution_clock::now();
@@ -336,21 +330,59 @@ int main(int argc, char *argv[])
    //    the basis functions in the finite element fespace.
    LinearForm b(&fespace);
    ConstantCoefficient one(1.0);
+   int nv = mesh.GetNV();
    
    FiniteElementSpace feVECspace(&mesh, fec, dim);
    GridFunction Phi(&feVECspace), PhiDot(&feVECspace);
    
    VectorFunctionCoefficient identity(mesh.Dimension(),
     [](const Vector &x, Vector &y) { y = x; });
-    VectorFunctionCoefficient zerofunc(mesh.Dimension(),
+   VectorFunctionCoefficient zerofunc(mesh.Dimension(),
     [](const Vector &x, Vector &y) { y = 0.0; });   
-   PhiDot.ProjectCoefficient(identity);  
-   Phi.ProjectCoefficient(identity);            
+   VectorFunctionCoefficient bump(mesh.Dimension(),
+    [](const Vector &x, Vector &y) { 
+	  float width = 0.2;
+	  if(abs(x[0]) < width && abs(x[1]) < width){
+		  y[0] = (width-abs(x[0]))*(width-abs(x[0]))*0.01;
+		  y[1] = (width-abs(x[1]))*(width-abs(x[1]))*0.01;
+	  } else {
+		  y = 0.0;
+	  }
+	});
+   VectorFunctionCoefficient shock(mesh.Dimension(),
+    [](const Vector &x, Vector &y) { 
+	  float width = 0.2;
+	  if(x[0] < 0){
+		  y[0] = 1.0;
+		  y[1] = 0.0;
+	  } else {
+		  y = 0.0;
+	  }
+	}); 
+   VectorFunctionCoefficient smooth(mesh.Dimension(),
+   [](const Vector &x, Vector &y) {
+    y = 0.0;
+    y[0] = exp(-40*(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)));
+   });
+   
+	
+   Phi = 0.0;
+   PhiDot.ProjectCoefficient(shock); 
+   
+   for (int vi = 0; vi < 10; vi++)
+   {
+	const double *v = mesh.GetVertex(vi); // pointer to coords
+    cout << "Vertex " << vi << " : (" << v[0] << ", " << v[1];
+	cout << ") and here Phi(" << vi << ") is: (" << Phi(feVECspace.DofToVDof(vi, 0)) << 
+	", " << Phi(feVECspace.DofToVDof(vi, 0)+nv) << ") \n";
+   }
+      
    
    
    RHSg gCoeff(Phi, PhiDot);
    
    b.AddDomainIntegrator(new DomainLFIntegrator(gCoeff));
+   //b.AddDomainIntegrator(new DomainLFIntegrator(one));
    b.Assemble();
 
    // 8. Define the solution vector x as a finite element grid function
@@ -459,12 +491,21 @@ int main(int argc, char *argv[])
       }
       else
       {
-         CG(*A, B, X, 1, 400, 1e-12, 0.0);
+         CG(*A, B, X, 1, 400, 1e-40, 0.0);
       }
    }
 
    // 12. Recover the solution as a finite element grid function.
    a.RecoverFEMSolution(X, b, x);
+   
+   for (int vi = 0; vi < 30; vi++)
+   {
+	const double *v = mesh.GetVertex(vi); // pointer to coords
+    cout << "Vertex " << vi << " : (" << v[0] << ", " << v[1];
+	cout << ") and here x(" << vi << ") is: (" << x(feVECspace.DofToVDof(vi, 0)) << 
+	", " << x(feVECspace.DofToVDof(vi, 0)+nv) << ") \n";
+   }
+   
 
 
    //End timer
@@ -483,13 +524,12 @@ int main(int argc, char *argv[])
    ScalarVectorProductCoefficient SecondProductRulePt(xcoeff, DivDPhiInvT);
    
    VectorSumCoefficient Phidotdotcoeff(FirstProductRulePt, SecondProductRulePt);
-   GridFunction Phidotdotgf(&feVECspace);  // same order as fespace
-   Phidotdotgf.ProjectCoefficient(Phidotdotcoeff); 
-
-
    
-
-
+   
+   ScalarVectorProductCoefficient negCoeff(-1.0, Phidotdotcoeff);
+   
+   GridFunction Phidotdotgf(&feVECspace);  // same order as fespace
+   Phidotdotgf.ProjectCoefficient(negCoeff);
    
 
    // 13. Save the refined mesh and the solution. This output can be viewed later
@@ -500,6 +540,10 @@ int main(int argc, char *argv[])
    ofstream sol_ofs("sol.gf");
    sol_ofs.precision(8);
    x.Save(sol_ofs);
+
+   InnerProductCoefficient ddcomp0(Phidotdotcoeff, e0Coeff);
+   GridFunction ddcomp0grid(&fespace);
+   ddcomp0grid.ProjectCoefficient(ddcomp0);
 
    // 14. Send the solution by socket to a GLVis server.
    if (visualization)

@@ -1,68 +1,9 @@
-//                                MFEM Example 1
+//                                IGR Shock Attempt 1
 //
-// Compile with: make ex1
+
 //
-// Sample runs:  ex1 -m ../data/square-disc.mesh
-//               ex1 -m ../data/star.mesh
-//               ex1 -m ../data/star-mixed.mesh
-//               ex1 -m ../data/escher.mesh
-//               ex1 -m ../data/fichera.mesh
-//               ex1 -m ../data/fichera-mixed.mesh
-//               ex1 -m ../data/toroid-wedge.mesh
-//               ex1 -m ../data/octahedron.mesh -o 1
-//               ex1 -m ../data/periodic-annulus-sector.msh
-//               ex1 -m ../data/periodic-torus-sector.msh
-//               ex1 -m ../data/square-disc-p2.vtk -o 2
-//               ex1 -m ../data/square-disc-p3.mesh -o 3
-//               ex1 -m ../data/square-disc-nurbs.mesh -o -1
-//               ex1 -m ../data/star-mixed-p2.mesh -o 2
-//               ex1 -m ../data/disc-nurbs.mesh -o -1
-//               ex1 -m ../data/pipe-nurbs.mesh -o -1
-//               ex1 -m ../data/fichera-mixed-p2.mesh -o 2
-//               ex1 -m ../data/star-surf.mesh
-//               ex1 -m ../data/square-disc-surf.mesh
-//               ex1 -m ../data/inline-segment.mesh
-//               ex1 -m ../data/amr-quad.mesh
-//               ex1 -m ../data/amr-hex.mesh
-//               ex1 -m ../data/fichera-amr.mesh
-//               ex1 -m ../data/mobius-strip.mesh
-//               ex1 -m ../data/mobius-strip.mesh -o -1 -sc
-//
-// Device sample runs:
-//               ex1 -pa -d cuda
-//               ex1 -fa -d cuda
-//               ex1 -pa -d raja-cuda
-//             * ex1 -pa -d raja-hip
-//               ex1 -pa -d occa-cuda
-//               ex1 -pa -d raja-omp
-//               ex1 -pa -d occa-omp
-//               ex1 -pa -d ceed-cpu
-//               ex1 -pa -d ceed-cpu -o 4 -a
-//               ex1 -pa -d ceed-cpu -m ../data/square-mixed.mesh
-//               ex1 -pa -d ceed-cpu -m ../data/fichera-mixed.mesh
-//             * ex1 -pa -d ceed-cuda
-//             * ex1 -pa -d ceed-hip
-//               ex1 -pa -d ceed-cuda:/gpu/cuda/shared
-//               ex1 -pa -d ceed-cuda:/gpu/cuda/shared -m ../data/square-mixed.mesh
-//               ex1 -pa -d ceed-cuda:/gpu/cuda/shared -m ../data/fichera-mixed.mesh
-//               ex1 -m ../data/beam-hex.mesh -pa -d cuda
-//               ex1 -m ../data/beam-tet.mesh -pa -d ceed-cpu
-//               ex1 -m ../data/beam-tet.mesh -pa -d ceed-cuda:/gpu/cuda/ref
-//
-// Description:  This example code demonstrates the use of MFEM to define a
-//               simple finite element discretization of the Poisson problem
-//               -Delta u = 1 with homogeneous Dirichlet boundary conditions.
-//               Specifically, we discretize using a FE space of the specified
-//               order, or if order < 1 using an isoparametric/isogeometric
-//               space (i.e. quadratic for quadratic curvilinear mesh, NURBS for
-//               NURBS mesh, etc.)
-//
-//               The example highlights the use of mesh refinement, finite
-//               element grid functions, as well as linear and bilinear forms
-//               corresponding to the left-hand side and right-hand side of the
-//               discrete linear system. We also cover the explicit elimination
-//               of essential boundary conditions, static condensation, and the
-//               optional connection to the GLVis tool for visualization.
+// Description:  This code is a first (attempt at) working code to 
+//               regularize a shock using IGR.
 
 #include "mfem.hpp"
 #include <fstream>
@@ -88,6 +29,7 @@ class MassMatrix1 : public MatrixCoefficient
 
       DenseMatrix Jac;
       phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
+	  Jac(0,0) += 1.0; Jac(1,1) += 1.0;
 
 	  DenseMatrix Jac_inv, Jac_invT;
 	  Jac_inv = Jac;
@@ -127,16 +69,17 @@ class LambdaDivPart : public VectorCoefficient
      //Hessian and Jacobian calculations at a point
      DenseMatrix Jac, HessX, HessY;
      phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
+	 Jac(0,0) += 1.0; Jac(1,1) += 1.0;
      gradX.GetVectorGradient(T, HessX);
      gradY.GetVectorGradient(T, HessY);
 	  DenseMatrix Jac_inv; Jac_inv = Jac; Jac_inv.Invert();
 
 	  //Ax and Ay store pieces of each hessian
 	  DenseMatrix Ax(dim, dim), Ay(dim, dim);
-     Ax(0,0) = HessX(0,0); Ax(0,1) = HessX(0,1);
-     Ay(0,0) = HessX(1,0); Ay(0,1) = HessX(1,1);
-     Ax(1,0) = HessY(0,0); Ax(1,1) = HessY(0,1);
-     Ay(1,0) = HessY(1,0); Ay(1,1) = HessY(1,1);
+      Ax(0,0) = HessX(0,0); Ax(0,1) = HessX(0,1);
+      Ay(0,0) = HessX(1,0); Ay(0,1) = HessX(1,1);
+      Ax(1,0) = HessY(0,0); Ax(1,1) = HessY(0,1);
+      Ay(1,0) = HessY(1,0); Ay(1,1) = HessY(1,1);
 	  
 	  //Multiply by the inverse Jacobian
 	  DenseMatrix Bx(dim, dim), By(dim, dim);
@@ -145,7 +88,7 @@ class LambdaDivPart : public VectorCoefficient
 	  
      //Multiply by the inverse Jacobian again, this is the (-) derivative of the inverse of the hessian
 	  DenseMatrix Cx(dim, dim), Cy(dim, dim);
-     Cx = 0.0; AddMult(Jac_inv, Bx, Cx);  // Cx = [DΦ]^{-1} ∂x[DΦ] [DΦ]^{-1}
+      Cx = 0.0; AddMult(Jac_inv, Bx, Cx);  // Cx = [DΦ]^{-1} ∂x[DΦ] [DΦ]^{-1}
 	  Cy = 0.0; AddMult(Jac_inv, By, Cy);  // Cy = [DΦ]^{-1} ∂y[DΦ] [DΦ]^{-1}
 	  
      //Output
@@ -171,6 +114,7 @@ class InvJac : public MatrixCoefficient
 
       DenseMatrix Jac;
       phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
+	  Jac(0,0) += 1.0; Jac(1,1) += 1.0;
 	  
 	  M.SetSize(dim, dim);
 	  M = Jac;
@@ -181,8 +125,8 @@ class InvJac : public MatrixCoefficient
 class RHSg : public Coefficient //Takes in two terms
 {
    private:
-     GridFunction &phi; // vector-valued GridFunction
-	  GridFunction &phidot; // vector-valued GridFunction
+      GridFunction &phi; // vector-valued GridFunction
+	   GridFunction &phidot; // vector-valued GridFunction
    public:
       RHSg(GridFunction &phi_, GridFunction &phidot_) : phi(phi_), phidot(phidot_) {}
 
@@ -192,7 +136,9 @@ class RHSg : public Coefficient //Takes in two terms
 	   int dim = phi.FESpace()->GetVDim();
 
       DenseMatrix JacInv(dim, dim), JacDot(dim, dim);
-      phi.GetVectorGradient(T, JacInv); JacInv.Invert();
+      phi.GetVectorGradient(T, JacInv); 
+	  JacInv(0,0) += 1.0; JacInv(1,1) += 1.0; 
+	  JacInv.Invert();
       phidot.GetVectorGradient(T, JacDot);
 
       DenseMatrix Mat(dim, dim), MatSqd(dim, dim);
@@ -219,9 +165,54 @@ class myGradScal : public VectorCoefficient
    }
 };
 
+class ReducedSystemOperator;
+
+class IGROperator : public TimeDependentOperator
+{
+protected:
+   ParFiniteElementSpace &fespace;
+   ParFiniteElementSpace &feVECspace;
+   ParMesh &mesh; 
+
+
+   //BilinearForm M, S;
+   //NonlinearForm H;
+   //real_t viscosity;
+   //HyperelasticModel *model;
+
+   CGSolver M_solver; // Krylov solver for inverting the mass matrix M
+   DSmoother M_prec;  // Preconditioner for the mass matrix M
+
+   /** Nonlinear operator defining the reduced backward Euler equation for the
+       velocity. Used in the implementation of method ImplicitSolve. */
+   //ReducedSystemOperator *reduced_oper;
+
+   
+   NewtonSolver newton_solver; /// Newton solver for the reduced backward Euler equation
+
+   Solver *J_solver; /// Solver for the Jacobian solve in the Newton method
+   Solver *J_prec; /// Preconditioner for the Jacobian solve in the Newton method
+
+   mutable Vector z; // auxiliary vector
+
+public:
+   IGROperator(ParFiniteElementSpace &fscal, ParFiniteElementSpace &fvec, ParMesh &mesh);
+
+   /// Compute the right-hand side of the ODE system.
+   void Mult(const Vector &vx, Vector &dvx_dt) const override;
+ 
+   ~IGROperator() override;
+};
+
 
 int main(int argc, char *argv[])
 {
+   //0. Initialize MPI and HYPRE
+   Mpi::Init();
+   int num_procs = Mpi::WorldSize();
+   int myid = Mpi::WorldRank();
+   Hypre::Init();
+
    // 1. Parse command-line options.
    const char *mesh_file = "../data/star.mesh";
    //const char *mesh_file = "../data/periodic-square.mesh";
@@ -232,6 +223,11 @@ int main(int argc, char *argv[])
    const char *device_config = "cpu";
    bool visualization = true;
    bool algebraic_ceed = false;
+   real_t dt = 0.0001;
+   real_t t_final = 0.01;
+   real_t alpha = 0.01;
+   int ode_solver_type = 2;
+
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -239,14 +235,6 @@ int main(int argc, char *argv[])
    args.AddOption(&order, "-o", "--order",
                   "Finite element order (polynomial degree) or -1 for"
                   " isoparametric space.");
-   args.AddOption(&static_cond, "-sc", "--static-condensation", "-no-sc",
-                  "--no-static-condensation", "Enable static condensation.");
-   args.AddOption(&pa, "-pa", "--partial-assembly", "-no-pa",
-                  "--no-partial-assembly", "Enable Partial Assembly.");
-   args.AddOption(&fa, "-fa", "--full-assembly", "-no-fa",
-                  "--no-full-assembly", "Enable Full Assembly.");
-   args.AddOption(&device_config, "-d", "--device",
-                  "Device configuration string, see Device::Configure().");
 #ifdef MFEM_USE_CEED
    args.AddOption(&algebraic_ceed, "-a", "--algebraic", "-no-a", "--no-algebraic",
                   "Use algebraic Ceed solver");
@@ -254,6 +242,14 @@ int main(int argc, char *argv[])
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
+   args.AddOption(&dt, "-dt", "--timestep",
+                  "The time step of the method");
+   args.AddOption(&ode_solver_type, "-s", "--ode-solver",
+                  ODESolver::Types.c_str());
+   args.AddOption(&alpha, "-alpha", "--alpha",
+                  "Alpha as the level of IGR");
+   args.AddOption(&t_final, "-tf", "--final-time",
+                  "The ending time");
    args.Parse();
    if (!args.Good())
    {
@@ -279,10 +275,23 @@ int main(int argc, char *argv[])
    //    elements.
    {
       int ref_levels =
-         (int)floor(log(50000./mesh.GetNE())/log(2.)/dim);
+         (int)floor(log(10000./mesh.GetNE())/log(2.)/dim);
       for (int l = 0; l < ref_levels; l++)
       {
          mesh.UniformRefinement();
+      }
+   }
+
+   // 4b. Define a parallel mesh by a partitioning of the serial mesh. Refine
+   //    this mesh further in parallel to increase the resolution. Once the
+   //    parallel mesh is defined, the serial mesh can be deleted.
+   ParMesh pmesh(MPI_COMM_WORLD, mesh);
+   mesh.Clear();
+   {
+      int par_ref_levels = 2;
+      for (int l = 0; l < par_ref_levels; l++)
+      {
+         pmesh.UniformRefinement();
       }
    }
 
@@ -296,9 +305,9 @@ int main(int argc, char *argv[])
       fec = new H1_FECollection(order, dim);
       delete_fec = true;
    }
-   else if (mesh.GetNodes())
+   else if (pmesh.GetNodes())
    {
-      fec = mesh.GetNodes()->OwnFEC();
+      fec = pmesh.GetNodes()->OwnFEC();
       delete_fec = false;
       cout << "Using isoparametric FEs: " << fec->Name() << endl;
    }
@@ -307,81 +316,210 @@ int main(int argc, char *argv[])
       fec = new H1_FECollection(order = 1, dim);
       delete_fec = true;
    }
-   FiniteElementSpace fespace(&mesh, fec);
-   cout << "Number of finite element unknowns: "
-        << fespace.GetTrueVSize() << endl;
+   ParFiniteElementSpace fespace(&pmesh, fec);
+   HYPRE_BigInt size = fespace.GlobalTrueVSize();
+   if (myid == 0)
+   {
+      cout << "Number of finite element unknowns: " << size << endl;
+   }
+   
 
    // 6. Determine the list of true (i.e. conforming) essential boundary dofs.
    //    In this example, the boundary conditions are defined by marking all
    //    the external boundary attributes from the mesh as essential (Dirichlet)
    //    and converting them to a list of true dofs.
    Array<int> ess_tdof_list;
-   if (mesh.bdr_attributes.Size())
-   {
-      Array<int> ess_bdr(mesh.bdr_attributes.Max());
-      ess_bdr = 0;
-      // Apply boundary conditions on all external boundaries:
-      mesh.MarkExternalBoundaries(ess_bdr);
-      // Boundary conditions can also be applied based on named attributes:
-      // mesh.MarkNamedBoundaries(set_name, ess_bdr)
-
-      fespace.GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
-   }
-
-   //Start Timer
-   auto start = chrono::high_resolution_clock::now();
+   
 
    // 7. Set up the linear form b(.) which corresponds to the right-hand side of
    //    the FEM linear system, which in this case is (1,phi_i) where phi_i are
    //    the basis functions in the finite element fespace.
-   LinearForm b(&fespace);
+   ParLinearForm b(&fespace);
    ConstantCoefficient one(1.0);
+   int nv = pmesh.GetNV();
    
-   FiniteElementSpace feVECspace(&mesh, fec, dim);
-   GridFunction Phi(&feVECspace), PhiDot(&feVECspace);
+   ParFiniteElementSpace feVECspace(&pmesh, fec, dim);
+   ParGridFunction Phi(&feVECspace), PhiDot(&feVECspace);
    
+
+   //Different Initial condition templates
    VectorFunctionCoefficient identity(mesh.Dimension(),
     [](const Vector &x, Vector &y) { y = x; });
-    VectorFunctionCoefficient zerofunc(mesh.Dimension(),
+   VectorFunctionCoefficient zerofunc(mesh.Dimension(),
     [](const Vector &x, Vector &y) { y = 0.0; });   
-   PhiDot.ProjectCoefficient(identity);  
-   Phi.ProjectCoefficient(identity);            
+   VectorFunctionCoefficient bump(mesh.Dimension(),
+    [](const Vector &x, Vector &y) { 
+	  float width = 0.2;
+	  if(abs(x[0] - 0.5) < width && abs(x[1] - 0.5) < width){
+		  y[0] = (width-x[0] + 0.5)*0.02;
+		  y[1] = (width-x[1] + 0.5)*0.02;
+	  } else {
+		  y = 0.0;
+	  }
+	}); 
+   VectorFunctionCoefficient shock(mesh.Dimension(),
+    [](const Vector &x, Vector &y) { 
+	  float width = 0.2;
+	  if(x[0] < 0){
+		  y[0] = 1.0;
+		  y[1] = 0.0;
+	  } else {
+		  y = 0.0;
+	  }
+	}); 
+   VectorFunctionCoefficient smooth(mesh.Dimension(),
+   [](const Vector &x, Vector &y) {
+    y = 0.0;
+    y[0] = exp(-40*(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)));
+   });
+   VectorFunctionCoefficient shock2(mesh.Dimension(),
+    [](const Vector &x, Vector &y) { 
+	  float width = 0.2;
+	  if(x[0] < 0.35){
+		  y[0] = 1.0;
+		  y[1] = 0.0;
+	  } else if(x[0] < 0.45){
+		  y[0] = 4.5 - 10*x[0];
+		  y[1] = 0.0;
+	  } else {
+		  y = 0.0;
+	  }
+	}); 
    
+	
+   Phi = 0.0;
+   ParGridFunction Phidotdotgf(&feVECspace);  // same order as fespace
+
+
+   //New compared to ex1mod4:
+   //Here try to set up time dependence/ time integrator
+   int fe_size = feVECspace.GetTrueVSize();
+   Array<int> fe_offset(3);
+   fe_offset[0] = 0;   fe_offset[1] = fe_size; fe_offset[2] = 2*fe_size;
+   BlockVector vx(fe_offset);
+
+   cout << "vx block0 size = " << vx.GetBlock(0).Size()
+     << ", PhiDot true size = " << feVECspace.GetTrueVSize()
+     << ", PhiDot vsize = " << feVECspace.GetVSize() << endl;
+
+
+   // bind
+   PhiDot.MakeTRef(&feVECspace, vx.GetBlock(0), 0);
+   Phi.MakeTRef(&feVECspace, vx.GetBlock(1), 0);
+
+   PhiDot.ProjectCoefficient(shock2);
+
+   socketstream sol_sock;
+   if (visualization)
+   {
+      char vishost[] = "localhost";
+      int  visport   = 19916;
+      sol_sock.open(vishost, visport);
+      sol_sock << "parallel " << num_procs << " " << myid << "\n";
+      sol_sock.precision(8);
+      sol_sock << "solution\n" << pmesh << PhiDot << flush;
+   }
+
+
+   unique_ptr<ODESolver> ode_solver = ODESolver::Select(ode_solver_type);
+   
+   real_t t = 0.0;
+   IGROperator oper(fespace, feVECspace, pmesh);
+   oper.SetTime(t);
+   ode_solver->Init(oper);
+   
+   //Time integration
+
+   bool last_step = false;
+   int nsteps = 10;
+   for(int ti =0; !last_step; ti++){
+      
+      real_t dt_real = min(dt, t_final - t);
+      
+      ode_solver->Step(vx, t, dt_real);
+
+      last_step = (t >= t_final - 1e-8*dt);
+
+      if (visualization) // every step
+      {
+         sol_sock << "solution\n" << mesh << PhiDot << flush;
+      }
+   }
+
+   // 15. Free the used memory.
+   if (delete_fec)
+   {
+      delete fec;
+   }
+
+   return 0;
+}
+
+
+
+IGROperator::IGROperator(ParFiniteElementSpace &fscal, ParFiniteElementSpace &fvec, ParMesh &mesh)
+   : TimeDependentOperator(2*fvec.GetTrueVSize(), (real_t) 0.0), fespace(fscal), feVECspace(fvec), mesh(mesh)
+{
+
+
+
+}
+
+void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
+{
+   // Create views to the sub-vectors v, x of vx, and dv_dt, dx_dt of dvx_dt
+   int sc = height/2;
+   Vector v(vx.GetData() +  0, sc);
+   Vector x(vx.GetData() + sc, sc);
+   Vector dv_dt(dvx_dt.GetData() +  0, sc);
+   Vector dx_dt(dvx_dt.GetData() + sc, sc);
+
+   /*cout << "sc = " << sc
+     << ", ||v|| = " << v.Norml2()
+     << ", ||x|| = " << x.Norml2() << endl;*/
+
+   // Wrap x into GridFunctions (no copies, just views)
+   ParGridFunction Phi(&feVECspace), PhiDot(&feVECspace);
+   //Phi.MakeRef(&feVECspace, x, 0);
+   //PhiDot.MakeRef(&feVECspace, v, 0);
+   Phi.MakeRef(&feVECspace, const_cast<Vector&>(vx), sc);
+   PhiDot.MakeRef(&feVECspace, const_cast<Vector&>(vx), 0);
+
+   // Wrap dxdt into GridFunctions
+   ParGridFunction ddphi;
+   ddphi.MakeRef(&feVECspace, dx_dt, 0);
+
+
+   //Copied one-step calculation
+   Array<int> ess_tdof_list;
+
+
+   ParLinearForm b(&fespace);
+   ConstantCoefficient one(1.0);
+   int nv = mesh.GetNV();
+   int dim = 2;
    
    RHSg gCoeff(Phi, PhiDot);
    
    b.AddDomainIntegrator(new DomainLFIntegrator(gCoeff));
    b.Assemble();
 
-   // 8. Define the solution vector x as a finite element grid function
+   //    Define the solution vector x as a finite element grid function
    //    corresponding to fespace. Initialize x with initial guess of zero,
    //    which satisfies the boundary conditions.
-   GridFunction x(&fespace);
-   x = 0.0;
+   ParGridFunction x2(&fespace);
+   x2 = 0.0;
 
-   // 9. Set up the bilinear form a(.,.) on the finite element space
+   //    Set up the bilinear form a(.,.) on the finite element space
    //    corresponding to the Laplacian operator -Delta, by adding the Diffusion
    //    domain integrator.
-   BilinearForm a(&fespace);
-   if (pa) { a.SetAssemblyLevel(AssemblyLevel::PARTIAL); }
-   if (fa)
-   {
-      a.SetAssemblyLevel(AssemblyLevel::FULL);
-      // Sort the matrix column indices when running on GPU or with OpenMP (i.e.
-      // when Device::IsEnabled() returns true). This makes the results
-      // bit-for-bit deterministic at the cost of somewhat longer run time.
-      a.EnableSparseMatrixSorting(Device::IsEnabled());
-   }
+   ParBilinearForm a(&fespace);
    
    float alpha = 0.1; 
    a.AddDomainIntegrator(new MassIntegrator); 
    
-   
-
-
    MassMatrix1 M(Phi, alpha);
    a.AddDomainIntegrator(new DiffusionIntegrator(M));
-
 
 
    //Calculate the gradients of each component of Phi
@@ -391,14 +529,14 @@ int main(int argc, char *argv[])
    VectorConstantCoefficient e0Coeff(e0), e1Coeff(e1);
    VectorGridFunctionCoefficient PhiCoeff(&Phi);
    InnerProductCoefficient comp0(PhiCoeff, e0Coeff), comp1(PhiCoeff, e1Coeff);
-   GridFunction comp0grid(&fespace), comp1grid(&fespace);
+   ParGridFunction comp0grid(&fespace), comp1grid(&fespace);
    comp0grid.ProjectCoefficient(comp0);
    comp1grid.ProjectCoefficient(comp1);
 
    //Each scalar piece has a gradient
    GradientGridFunctionCoefficient gradX(&comp0grid);
    GradientGridFunctionCoefficient gradY(&comp1grid);
-   GridFunction gradXGrid(&feVECspace), gradYGrid(&feVECspace);
+   ParGridFunction gradXGrid(&feVECspace), gradYGrid(&feVECspace);
    gradXGrid.ProjectCoefficient(gradX);
    gradYGrid.ProjectCoefficient(gradY);
    
@@ -414,108 +552,64 @@ int main(int argc, char *argv[])
    a.AddDomainIntegrator(new MixedDirectionalDerivativeIntegrator(Lambda2));
    a.AddDomainIntegrator(new TransposeIntegrator(new MixedDirectionalDerivativeIntegrator(Lambda2)));
 
-   // 10. Assemble the bilinear form and the corresponding linear system,
+   //     Assemble the bilinear form and the corresponding linear system,
    //     applying any necessary transformations such as: eliminating boundary
    //     conditions, applying conforming constraints for non-conforming AMR,
    //     static condensation, etc.
-   if (static_cond) { a.EnableStaticCondensation(); }
    a.Assemble();
-
    OperatorPtr A;
    Vector B, X;
-   a.FormLinearSystem(ess_tdof_list, x, b, A, X, B);
+   a.FormLinearSystem(ess_tdof_list, x2, b, A, X, B);
 
-   cout << "Size of linear system: " << A->Height() << endl;
-
-   // 11. Solve the linear system A X = B.
-   if (!pa)
-   {
-#ifndef MFEM_USE_SUITESPARSE
-      // Use a simple symmetric Gauss-Seidel preconditioner with PCG.
-      GSSmoother M((SparseMatrix&)(*A));
-      PCG(*A, M, B, X, 1, 400, 1e-12, 0.0);
-#else
-      // If MFEM was compiled with SuiteSparse, use UMFPACK to solve the system.
-      UMFPackSolver umf_solver;
-      umf_solver.Control[UMFPACK_ORDERING] = UMFPACK_ORDERING_METIS;
-      umf_solver.SetOperator(*A);
-      umf_solver.Mult(B, X);
-#endif
-   }
-   else
-   {
-      if (UsesTensorBasis(fespace))
-      {
-         if (algebraic_ceed)
-         {
-            ceed::AlgebraicSolver M(a, ess_tdof_list);
-            PCG(*A, M, B, X, 1, 400, 1e-12, 0.0);
-         }
-         else
-         {
-            OperatorJacobiSmoother M(a, ess_tdof_list);
-            PCG(*A, M, B, X, 1, 400, 1e-12, 0.0);
-         }
-      }
-      else
-      {
-         CG(*A, B, X, 1, 400, 1e-12, 0.0);
-      }
-   }
-
-   // 12. Recover the solution as a finite element grid function.
-   a.RecoverFEMSolution(X, b, x);
+   // Solve the linear system A X = B.
+   Solver *prec = NULL;
+   prec = new HypreBoomerAMG;
+   CGSolver cg(MPI_COMM_WORLD);
+   cg.SetRelTol(1e-12);
+   cg.SetMaxIter(2000);
+   cg.SetPrintLevel(1);
+   if (prec) { cg.SetPreconditioner(*prec); }
+   cg.SetOperator(*A);
+   cg.Mult(B, X);
+   delete prec;
 
 
-   //End timer
-   auto end = chrono::high_resolution_clock::now();
-   std::chrono::duration<double> duration = end - start;
-   double elapsed_seconds = duration.count();
-   cout << "Execution time: " << elapsed_seconds << " seconds." << endl;
+   // Recover the solution as a finite element grid function.
+   a.RecoverFEMSolution(X, b, x2);
    
    //Recover Phi''
    TransposeMatrixCoefficient DPhiInvT(DPhiInv);
-   myGradScal Dx(dim, x);
+   myGradScal Dx(dim, x2);
    MatrixVectorProductCoefficient FirstProductRulePt(DPhiInvT, Dx);
    
    LambdaDivPart DivDPhiInvT(Phi, gradXGrid, gradYGrid, 1.0);
-   GridFunctionCoefficient xcoeff(&x);  
+   GridFunctionCoefficient xcoeff(&x2);  
    ScalarVectorProductCoefficient SecondProductRulePt(xcoeff, DivDPhiInvT);
    
    VectorSumCoefficient Phidotdotcoeff(FirstProductRulePt, SecondProductRulePt);
-   GridFunction Phidotdotgf(&feVECspace);  // same order as fespace
-   Phidotdotgf.ProjectCoefficient(Phidotdotcoeff); 
-
-
+   
+   
+   ScalarVectorProductCoefficient negCoeff(-1.0, Phidotdotcoeff); //Fix sign?
+   
+   ParGridFunction Phidotdotgf(&feVECspace);  // same order as fespace
+   Phidotdotgf.ProjectCoefficient(negCoeff);
    
 
+   //Set Outputs
+   dv_dt = Phidotdotgf;
+   dx_dt = v;
 
-   
-
-   // 13. Save the refined mesh and the solution. This output can be viewed later
-   //     using GLVis: "glvis -m refined.mesh -g sol.gf".
-   ofstream mesh_ofs("refined.mesh");
-   mesh_ofs.precision(8);
-   mesh.Print(mesh_ofs);
-   ofstream sol_ofs("sol.gf");
-   sol_ofs.precision(8);
-   x.Save(sol_ofs);
-
-   // 14. Send the solution by socket to a GLVis server.
-   if (visualization)
-   {
-      char vishost[] = "localhost";
-      int  visport   = 19916;
-      socketstream sol_sock(vishost, visport);
-      sol_sock.precision(8);
-      sol_sock << "solution\n" << mesh << x << flush;
-   }
-
-   // 15. Free the used memory.
-   if (delete_fec)
-   {
-      delete fec;
-   }
-
-   return 0;
+   cout << "||v|| = " << v.Norml2()
+     << ", ||dv_dt|| = " << dv_dt.Norml2()
+     << ", ||dx_dt|| = " << dx_dt.Norml2() << endl;
 }
+
+
+IGROperator::~IGROperator()
+{
+   delete J_solver;
+   delete J_prec;
+   //delete reduced_oper;
+   //delete model;
+}
+

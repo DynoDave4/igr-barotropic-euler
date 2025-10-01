@@ -29,6 +29,11 @@
 #ex1mod1 -> This solves the extension of Poisson (Id - α Δ) u = f
 #ex1mod2 -> previously called ex1modified1, solves (Id - α Δ + M1 diffusion term) u = f
 #ex1mod3 -> solves (Id + M1 diffusion term + 2 convection terms + Lambda 1 term) u = f
+#ex1mod4 -> Same as mod3 (both solve for phi'') but now (Phi0 -= Id) and (Jac -> Jac + Id)
+#ex1mod5 -> Add time dependence/ time integrator?
+
+#ex9mod1 -> just a copy, not useful
+#ex10mod1 - > updated to use our 
 
 # Use the MFEM build directory
 MFEM_DIR ?= ..
@@ -44,12 +49,13 @@ MFEM_LIB_FILE = mfem_is_not_built
 SEQ_EXAMPLES = ex0 ex1 ex2 ex3 ex4 ex5 ex6 ex7 ex8 ex9 ex10 ex14 ex15 ex16 \
    ex17 ex18 ex19 ex20 ex21 ex22 ex23 ex24 ex25 ex26 ex27 ex28 ex29 ex30 \
    ex31 ex33 ex34 ex36 ex37 ex38 ex39 ex40 ex0pt2 ex1pt2 \
-   ex1pt3 ex3pt2 ex1pt4 ex3pt3 ex0mod1 ex0mod2 ex1mod1 \
-   IGRclasstesting ex1mod2 ex1mod3 TestVecHess SimpleHessTest CustomJacCalculator
+   ex1pt3 ex3pt2 ex1pt4 ex3pt3 ex0mod1 ex0mod2 ex1mod1 ex9mod1 ex10mod1 \
+   IGRclasstesting ex1mod2 ex1mod3 TestVecHess SimpleHessTest CustomJacCalculator ex1mod4 \
+   ex1mod5 ex1neumann
 PAR_EXAMPLES = ex0p ex1p ex2p ex3p ex4p ex5p ex6p ex7p ex8p ex9p ex10p ex11p \
    ex12p ex13p ex14p ex15p ex16p ex17p ex18p ex19p ex20p ex21p ex22p ex24p \
    ex25p ex26p ex27p ex28p ex29p ex30p ex31p ex32p ex33p ex34p ex35p ex36p \
-   ex37p ex39p ex40p
+   ex37p ex39p ex40p ex1mod4p ex1mod5p
 SEQ_DEVICE_EXAMPLES = ex1 ex3 ex4 ex5 ex6 ex9 ex14 ex22 ex24 ex25 ex26 ex34
 PAR_DEVICE_EXAMPLES = ex1p ex2p ex3p ex4p ex5p ex6p ex7p ex9p ex13p ex14p \
    ex22p ex24p ex25p ex26p ex34p ex35p

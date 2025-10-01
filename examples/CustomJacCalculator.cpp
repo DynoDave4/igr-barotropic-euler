@@ -327,7 +327,7 @@ int main(int argc, char *argv[])
    //Begin hessian calculations. Remember, we have the initial grid function f,
    // the results ofthe linear solve for the gradient for attempt 1 are stored in x
    
-
+   //Attempt 1 does not work
    
    start = std::chrono::high_resolution_clock::now();
    
