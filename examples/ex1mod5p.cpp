@@ -226,6 +226,7 @@ int main(int argc, char *argv[])
    real_t t_final = 0.01;
    real_t alpha = 0.01;
    int ode_solver_type = 1;
+   real_t refined = 10000.0;
 
 
    OptionsParser args(argc, argv);
@@ -244,6 +245,8 @@ int main(int argc, char *argv[])
    args.AddOption(&alpha, "-alpha", "--alpha",
                   "Alpha as the level of IGR");
    args.AddOption(&t_final, "-tf", "--final-time",
+                  "The ending time");
+   args.AddOption(&refined, "-rf", "--init-max-refinement",
                   "The ending time");
    args.Parse();
    if (!args.Good())
@@ -271,7 +274,7 @@ int main(int argc, char *argv[])
    //    elements.
    {
       int ref_levels =
-         (int)floor(log(10000./mesh.GetNE())/log(2.)/dim);
+         (int)floor(log(refined/mesh.GetNE())/log(2.)/dim);
       for (int l = 0; l < ref_levels; l++)
       {
          mesh.UniformRefinement();
