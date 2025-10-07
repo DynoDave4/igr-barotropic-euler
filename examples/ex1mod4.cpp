@@ -214,7 +214,7 @@ class myGradScal : public VectorCoefficient
       int dim;
       GridFunction &x;   //scalar valued
    public:
-      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim), dim(dim_), x(x_) {}
+      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim_), dim(dim_), x(x_) {}
 
    virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
    {

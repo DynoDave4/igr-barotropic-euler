@@ -155,7 +155,7 @@ class myGradScal : public VectorCoefficient
       int dim;
       GridFunction &x;   //scalar valued
    public:
-      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim), dim(dim_), x(x_) {}
+      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim_), dim(dim_), x(x_) {}
 
    virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
    {
@@ -216,7 +216,6 @@ int main(int argc, char *argv[])
    bool fa = false;
    const char *device_config = "cpu";
    bool visualization = true;
-   bool algebraic_ceed = false;
    real_t dt = 0.0001;
    real_t t_final = 0.01;
    real_t alpha = 0.01;
@@ -229,10 +228,6 @@ int main(int argc, char *argv[])
    args.AddOption(&order, "-o", "--order",
                   "Finite element order (polynomial degree) or -1 for"
                   " isoparametric space.");
-#ifdef MFEM_USE_CEED
-   args.AddOption(&algebraic_ceed, "-a", "--algebraic", "-no-a", "--no-algebraic",
-                  "Use algebraic Ceed solver");
-#endif
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -543,9 +538,11 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    #endif
 
 
+
    // Recover the solution as a finite element grid function.
    a.RecoverFEMSolution(X, b, x2);
    //x2 is the result of the elliptic solve
+   //Want Phi'' = div([DPhi]^-T x2 + Euler Term )
    
    //Recover Phi''
    TransposeMatrixCoefficient DPhiInvT(DPhiInv);
@@ -566,7 +563,7 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    
 
    //Set Outputs
-   dv_dt = Phidotdotgf;
+   dv_dt = Phidotdotgf; // + div()
    dx_dt = v;
 
    cout << "||v|| = " << v.Norml2()

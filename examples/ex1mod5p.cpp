@@ -155,7 +155,7 @@ class myGradScal : public VectorCoefficient
       int dim;
       GridFunction &x;   //scalar valued
    public:
-      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim), dim(dim_), x(x_) {}
+      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim_), dim(dim_), x(x_) {}
 
    virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
    {
@@ -222,11 +222,10 @@ int main(int argc, char *argv[])
    bool fa = false;
    const char *device_config = "cpu";
    bool visualization = true;
-   bool algebraic_ceed = false;
    real_t dt = 0.0001;
    real_t t_final = 0.01;
    real_t alpha = 0.01;
-   int ode_solver_type = 2;
+   int ode_solver_type = 1;
 
 
    OptionsParser args(argc, argv);
@@ -235,10 +234,6 @@ int main(int argc, char *argv[])
    args.AddOption(&order, "-o", "--order",
                   "Finite element order (polynomial degree) or -1 for"
                   " isoparametric space.");
-#ifdef MFEM_USE_CEED
-   args.AddOption(&algebraic_ceed, "-a", "--algebraic", "-no-a", "--no-algebraic",
-                  "Use algebraic Ceed solver");
-#endif
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -257,6 +252,7 @@ int main(int argc, char *argv[])
       return 1;
    }
    args.PrintOptions(cout);
+
 
    // 2. Enable hardware devices such as GPUs, and programming models such as
    //    CUDA, OCCA, RAJA and OpenMP based on command line options.
@@ -298,25 +294,10 @@ int main(int argc, char *argv[])
    // 5. Define a finite element space on the mesh. Here we use continuous
    //    Lagrange finite elements of the specified order. If order < 1, we
    //    instead use an isoparametric/isogeometric space.
-   FiniteElementCollection *fec;
-   bool delete_fec;
-   if (order > 0)
-   {
-      fec = new H1_FECollection(order, dim);
-      delete_fec = true;
-   }
-   else if (pmesh.GetNodes())
-   {
-      fec = pmesh.GetNodes()->OwnFEC();
-      delete_fec = false;
-      cout << "Using isoparametric FEs: " << fec->Name() << endl;
-   }
-   else
-   {
-      fec = new H1_FECollection(order = 1, dim);
-      delete_fec = true;
-   }
-   ParFiniteElementSpace fespace(&pmesh, fec);
+   bool delete_fec = true;
+   H1_FECollection fec(order, dim);
+
+   ParFiniteElementSpace fespace(&pmesh, &fec);
    HYPRE_BigInt size = fespace.GlobalTrueVSize();
    if (myid == 0)
    {
@@ -338,16 +319,15 @@ int main(int argc, char *argv[])
    ConstantCoefficient one(1.0);
    int nv = pmesh.GetNV();
    
-   ParFiniteElementSpace feVECspace(&pmesh, fec, dim);
-   ParGridFunction Phi(&feVECspace), PhiDot(&feVECspace);
+   ParFiniteElementSpace feVECspace(&pmesh, &fec, dim);
    
 
    //Different Initial condition templates
-   VectorFunctionCoefficient identity(mesh.Dimension(),
+   VectorFunctionCoefficient identity(pmesh.Dimension(),
     [](const Vector &x, Vector &y) { y = x; });
-   VectorFunctionCoefficient zerofunc(mesh.Dimension(),
+   VectorFunctionCoefficient zerofunc(pmesh.Dimension(),
     [](const Vector &x, Vector &y) { y = 0.0; });   
-   VectorFunctionCoefficient bump(mesh.Dimension(),
+   VectorFunctionCoefficient bump(pmesh.Dimension(),
     [](const Vector &x, Vector &y) { 
 	  float width = 0.2;
 	  if(abs(x[0] - 0.5) < width && abs(x[1] - 0.5) < width){
@@ -357,7 +337,7 @@ int main(int argc, char *argv[])
 		  y = 0.0;
 	  }
 	}); 
-   VectorFunctionCoefficient shock(mesh.Dimension(),
+   VectorFunctionCoefficient shock(pmesh.Dimension(),
     [](const Vector &x, Vector &y) { 
 	  float width = 0.2;
 	  if(x[0] < 0){
@@ -367,12 +347,12 @@ int main(int argc, char *argv[])
 		  y = 0.0;
 	  }
 	}); 
-   VectorFunctionCoefficient smooth(mesh.Dimension(),
+   VectorFunctionCoefficient smooth(pmesh.Dimension(),
    [](const Vector &x, Vector &y) {
     y = 0.0;
     y[0] = exp(-40*(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)));
    });
-   VectorFunctionCoefficient shock2(mesh.Dimension(),
+   VectorFunctionCoefficient shock2(pmesh.Dimension(),
     [](const Vector &x, Vector &y) { 
 	  float width = 0.2;
 	  if(x[0] < 0.35){
@@ -387,27 +367,30 @@ int main(int argc, char *argv[])
 	}); 
    
 	
-   Phi = 0.0;
+   //Phi = 0.0;
    ParGridFunction Phidotdotgf(&feVECspace);  // same order as fespace
 
 
    //New compared to ex1mod4:
    //Here try to set up time dependence/ time integrator
-   int fe_size = feVECspace.GetTrueVSize();
-   Array<int> fe_offset(3);
-   fe_offset[0] = 0;   fe_offset[1] = fe_size; fe_offset[2] = 2*fe_size;
-   BlockVector vx(fe_offset);
+   int true_size = feVECspace.GetTrueVSize();
+   Array<int> true_offset(3);
+   true_offset[0] = 0;   true_offset[1] = true_size; true_offset[2] = 2*true_size;
+   BlockVector vx(true_offset);
+   ParGridFunction Phi(&feVECspace), PhiDot(&feVECspace);
 
-   cout << "vx block0 size = " << vx.GetBlock(0).Size()
-     << ", PhiDot true size = " << feVECspace.GetTrueVSize()
-     << ", PhiDot vsize = " << feVECspace.GetVSize() << endl;
+   PhiDot.MakeTRef(&feVECspace, vx, true_offset[0]);
+   Phi.MakeTRef(&feVECspace, vx, true_offset[1]);
 
-
-   // bind
-   PhiDot.MakeTRef(&feVECspace, vx.GetBlock(0), 0);
-   Phi.MakeTRef(&feVECspace, vx.GetBlock(1), 0);
-
+   Phi = 0.0;
    PhiDot.ProjectCoefficient(shock2);
+
+   PhiDot.GetTrueDofs(vx.GetBlock(0));
+   Phi.GetTrueDofs(vx.GetBlock(1));
+
+   //cout << "vx block0 size = " << vx.GetBlock(0).Size()  << ", PhiDot true size = " << feVECspace.GetTrueVSize()  << ", PhiDot vsize = " << feVECspace.GetVSize() << endl;
+
+   
 
    socketstream sol_sock;
    if (visualization)
@@ -431,25 +414,37 @@ int main(int argc, char *argv[])
    //Time integration
 
    bool last_step = false;
-   int nsteps = 10;
+
+
    for(int ti =0; !last_step; ti++){
       
       real_t dt_real = min(dt, t_final - t);
       
       ode_solver->Step(vx, t, dt_real);
+      
 
       last_step = (t >= t_final - 1e-8*dt);
 
-      if (visualization) // every step
+      if (visualization)
       {
-         sol_sock << "solution\n" << mesh << PhiDot << flush;
+         PhiDot.SetFromTrueDofs(vx.GetBlock(0));   // update local storage from true-dof state
+         // Optionally also update displacement:
+         Phi.SetFromTrueDofs(vx.GetBlock(1));
+         sol_sock << "parallel " << num_procs << " " << myid << "\n";
+         sol_sock << "solution\n" << pmesh << PhiDot << flush;
       }
+
+      
    }
+
+   
+
+   
 
    // 15. Free the used memory.
    if (delete_fec)
    {
-      delete fec;
+      //delete fec;
    }
 
    return 0;
@@ -478,16 +473,24 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
      << ", ||v|| = " << v.Norml2()
      << ", ||x|| = " << x.Norml2() << endl;*/
 
+
+   // Quick sanity checks
+   MFEM_ASSERT(sc == feVECspace.GetTrueVSize(), "sc mismatch with feVECspace true size");
+   if (!IsFinite(v.Norml2()) || !IsFinite(x.Norml2()))
+   {
+      cout << "Rank ??? warning: input true-dof norms not finite: "
+           << "||v_true||=" << v.Norml2() << " ||x_true||=" << x.Norml2() << endl;
+   }
+
+
    // Wrap x into GridFunctions (no copies, just views)
    ParGridFunction Phi(&feVECspace), PhiDot(&feVECspace);
-   //Phi.MakeRef(&feVECspace, x, 0);
-   //PhiDot.MakeRef(&feVECspace, v, 0);
-   Phi.MakeRef(&feVECspace, const_cast<Vector&>(vx), sc);
-   PhiDot.MakeRef(&feVECspace, const_cast<Vector&>(vx), 0);
+   Phi.SetFromTrueDofs(x);
+   PhiDot.SetFromTrueDofs(v);
 
    // Wrap dxdt into GridFunctions
    ParGridFunction ddphi;
-   ddphi.MakeRef(&feVECspace, dx_dt, 0);
+   ddphi.MakeTRef(&feVECspace, dx_dt, 0);
 
 
    //Copied one-step calculation
@@ -596,7 +599,8 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    
 
    //Set Outputs
-   dv_dt = Phidotdotgf;
+   //Phidotdotgf.Distribute();
+   Phidotdotgf.GetTrueDofs(dv_dt);
    dx_dt = v;
 
    cout << "||v|| = " << v.Norml2()

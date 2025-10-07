@@ -214,7 +214,7 @@ class myGradScal : public VectorCoefficient
       int dim;
       GridFunction &x;   //scalar valued
    public:
-      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim), dim(dim_), x(x_) {}
+      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim_), dim(dim_), x(x_) {}
 
    virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
    {
@@ -357,7 +357,7 @@ int main(int argc, char *argv[])
    //    the basis functions in the finite element fespace.
    ParLinearForm b(&fespace);
    ConstantCoefficient one(1.0);
-   int nv = pmesh.GetNV();
+   //int nv = pmesh.GetNV();
    
    ParFiniteElementSpace feVECspace(&pmesh, fec, dim);
    ParGridFunction Phi(&feVECspace), PhiDot(&feVECspace);
@@ -378,7 +378,7 @@ int main(int argc, char *argv[])
 	});
    VectorFunctionCoefficient shock(pmesh.Dimension(),
     [](const Vector &x, Vector &y) { 
-	  float width = 0.2;
+	  //float width = 0.2;
 	  if(x[0] < 0){
 		  y[0] = 1.0;
 		  y[1] = 0.0;
