@@ -18,9 +18,9 @@ class MassMatrix1 : public MatrixCoefficient
 {
    private:
       GridFunction &phi; // vector-valued GridFunction
-	  float alpha;
+	   double alpha;
    public:
-      MassMatrix1(GridFunction &phi_, float alpha_) : MatrixCoefficient(phi_.FESpace()->GetVDim()), phi(phi_), alpha(alpha_) {}
+      MassMatrix1(GridFunction &phi_, double alpha_) : MatrixCoefficient(phi_.FESpace()->GetVDim()), phi(phi_), alpha(alpha_) {}
 
    virtual void Eval(DenseMatrix &M, ElementTransformation &T, const IntegrationPoint &ip)
    {
@@ -55,9 +55,9 @@ class LambdaDivPart : public VectorCoefficient
       GridFunction &phi; // vector-valued GridFunction
       GridFunction &gradX; // vector-valued GridFunction
       GridFunction &gradY; // vector-valued GridFunction
-	  float alpha;
+	  double alpha;
    public:
-      LambdaDivPart(GridFunction &phi_, GridFunction &gradX_, GridFunction &gradY_, float alpha_) : 
+      LambdaDivPart(GridFunction &phi_, GridFunction &gradX_, GridFunction &gradY_, double alpha_) : 
            VectorCoefficient(phi_.FESpace()->GetVDim()), phi(phi_), gradX(gradX_), gradY(gradY_), alpha(alpha_) {}
 
    virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
@@ -211,7 +211,6 @@ int main(int argc, char *argv[])
    const char *mesh_file = "../data/star.mesh";
    //const char *mesh_file = "../data/periodic-square.mesh";
    int order = 1;
-   bool static_cond = false;
    bool pa = false;
    bool fa = false;
    const char *device_config = "cpu";
@@ -320,7 +319,7 @@ int main(int argc, char *argv[])
     [](const Vector &x, Vector &y) { y = 0.0; });   
    VectorFunctionCoefficient bump(mesh.Dimension(),
     [](const Vector &x, Vector &y) { 
-	  float width = 0.2;
+	  double width = 0.2;
 	  if(abs(x[0] - 0.5) < width && abs(x[1] - 0.5) < width){
 		  y[0] = (width-x[0] + 0.5)*0.02;
 		  y[1] = (width-x[1] + 0.5)*0.02;
@@ -330,7 +329,6 @@ int main(int argc, char *argv[])
 	}); 
    VectorFunctionCoefficient shock(mesh.Dimension(),
     [](const Vector &x, Vector &y) { 
-	  float width = 0.2;
 	  if(x[0] < 0){
 		  y[0] = 1.0;
 		  y[1] = 0.0;
@@ -345,7 +343,6 @@ int main(int argc, char *argv[])
    });
    VectorFunctionCoefficient shock2(mesh.Dimension(),
     [](const Vector &x, Vector &y) { 
-	  float width = 0.2;
 	  if(x[0] < 0.35){
 		  y[0] = 1.0;
 		  y[1] = 0.0;
@@ -484,7 +481,7 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    //    domain integrator.
    BilinearForm a(&fespace);
    
-   float alpha = 0.1; 
+   double alpha = 0.1; 
    a.AddDomainIntegrator(new MassIntegrator); 
    
    MassMatrix1 M(Phi, alpha);
