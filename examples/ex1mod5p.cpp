@@ -13,6 +13,7 @@
 using namespace std;
 using namespace mfem;
 
+int debug=1;
 
 class MassMatrix1 : public MatrixCoefficient
 {
@@ -63,8 +64,7 @@ class LambdaDivPart : public VectorCoefficient
    virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
    {
      T.SetIntPoint(&ip);
-	  int dim = phi.FESpace()->GetVDim();
-
+	 int dim = phi.FESpace()->GetVDim();
      
      //Hessian and Jacobian calculations at a point
      DenseMatrix Jac, HessX, HessY;
@@ -72,29 +72,29 @@ class LambdaDivPart : public VectorCoefficient
 	 Jac(0,0) += 1.0; Jac(1,1) += 1.0;
      gradX.GetVectorGradient(T, HessX);
      gradY.GetVectorGradient(T, HessY);
-	  DenseMatrix Jac_inv; Jac_inv = Jac; Jac_inv.Invert();
+	 DenseMatrix Jac_inv; Jac_inv = Jac; Jac_inv.Invert();
 
-	  //Ax and Ay store pieces of each hessian
-	  DenseMatrix Ax(dim, dim), Ay(dim, dim);
-      Ax(0,0) = HessX(0,0); Ax(0,1) = HessX(0,1);
-      Ay(0,0) = HessX(1,0); Ay(0,1) = HessX(1,1);
-      Ax(1,0) = HessY(0,0); Ax(1,1) = HessY(0,1);
-      Ay(1,0) = HessY(1,0); Ay(1,1) = HessY(1,1);
-	  
-	  //Multiply by the inverse Jacobian
-	  DenseMatrix Bx(dim, dim), By(dim, dim);
-	  Bx = 0.0; AddMult(Ax, Jac_inv, Bx);
-	  By = 0.0; AddMult(Ay, Jac_inv, By);
+	 //Ax and Ay store pieces of each hessian
+	 DenseMatrix Ax(dim, dim), Ay(dim, dim);
+     Ax(0,0) = HessX(0,0); Ax(0,1) = HessX(0,1);
+     Ay(0,0) = HessX(1,0); Ay(0,1) = HessX(1,1);
+     Ax(1,0) = HessY(0,0); Ax(1,1) = HessY(0,1);
+     Ay(1,0) = HessY(1,0); Ay(1,1) = HessY(1,1);
+	 
+	 //Multiply by the inverse Jacobian
+	 DenseMatrix Bx(dim, dim), By(dim, dim);
+	 Bx = 0.0; AddMult(Ax, Jac_inv, Bx);
+	 By = 0.0; AddMult(Ay, Jac_inv, By);
 	  
      //Multiply by the inverse Jacobian again, this is the (-) derivative of the inverse of the hessian
-	  DenseMatrix Cx(dim, dim), Cy(dim, dim);
-      Cx = 0.0; AddMult(Jac_inv, Bx, Cx);  // Cx = [DΦ]^{-1} ∂x[DΦ] [DΦ]^{-1}
-	  Cy = 0.0; AddMult(Jac_inv, By, Cy);  // Cy = [DΦ]^{-1} ∂y[DΦ] [DΦ]^{-1}
+	 DenseMatrix Cx(dim, dim), Cy(dim, dim);
+     Cx = 0.0; AddMult(Jac_inv, Bx, Cx);  // Cx = [DΦ]^{-1} ∂x[DΦ] [DΦ]^{-1}
+	 Cy = 0.0; AddMult(Jac_inv, By, Cy);  // Cy = [DΦ]^{-1} ∂y[DΦ] [DΦ]^{-1}
 	  
      //Output
-	  V.SetSize(dim);    //Coefficients of Lambda2
-	  V(0) = alpha*(-1*Cx(0,0) - Cy(1,0));
-	  V(1) = alpha*(-1*Cx(0,1) - Cy(1,1));
+	 V.SetSize(dim);    //Coefficients of Lambda2
+	 V(0) = alpha*(-1*Cx(0,0) - Cy(1,0));
+	 V(1) = alpha*(-1*Cx(0,1) - Cy(1,1));
 	  
 	  
    }
@@ -126,14 +126,14 @@ class RHSg : public Coefficient //Takes in two terms
 {
    private:
       GridFunction &phi; // vector-valued GridFunction
-	   GridFunction &phidot; // vector-valued GridFunction
+	  GridFunction &phidot; // vector-valued GridFunction
    public:
       RHSg(GridFunction &phi_, GridFunction &phidot_) : phi(phi_), phidot(phidot_) {}
 
    virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
    {
-	   T.SetIntPoint(&ip);
-	   int dim = phi.FESpace()->GetVDim();
+	  T.SetIntPoint(&ip);
+	  int dim = phi.FESpace()->GetVDim();
 
       DenseMatrix JacInv(dim, dim), JacDot(dim, dim);
       phi.GetVectorGradient(T, JacInv); 
@@ -165,8 +165,6 @@ class myGradScal : public VectorCoefficient
    }
 };
 
-class ReducedSystemOperator;
-
 class IGROperator : public TimeDependentOperator
 {
 protected:
@@ -185,8 +183,6 @@ protected:
 
    /** Nonlinear operator defining the reduced backward Euler equation for the
        velocity. Used in the implementation of method ImplicitSolve. */
-   //ReducedSystemOperator *reduced_oper;
-
    
    NewtonSolver newton_solver; /// Newton solver for the reduced backward Euler equation
 
@@ -307,23 +303,7 @@ int main(int argc, char *argv[])
       cout << "Number of finite element unknowns: " << size << endl;
    }
    
-
-   // 6. Determine the list of true (i.e. conforming) essential boundary dofs.
-   //    In this example, the boundary conditions are defined by marking all
-   //    the external boundary attributes from the mesh as essential (Dirichlet)
-   //    and converting them to a list of true dofs.
-   Array<int> ess_tdof_list;
-   
-
-   // 7. Set up the linear form b(.) which corresponds to the right-hand side of
-   //    the FEM linear system, which in this case is (1,phi_i) where phi_i are
-   //    the basis functions in the finite element fespace.
-   ParLinearForm b(&fespace);
-   ConstantCoefficient one(1.0);
-   int nv = pmesh.GetNV();
-   
    ParFiniteElementSpace feVECspace(&pmesh, &fec, dim);
-   
 
    //Different Initial condition templates
    VectorFunctionCoefficient identity(pmesh.Dimension(),
@@ -352,7 +332,7 @@ int main(int argc, char *argv[])
    VectorFunctionCoefficient smooth(pmesh.Dimension(),
    [](const Vector &x, Vector &y) {
     y = 0.0;
-    y[0] = exp(-40*(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)));
+    y[0] = exp(-40.0*(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)));
    });
    VectorFunctionCoefficient shock2(pmesh.Dimension(),
     [](const Vector &x, Vector &y) { 
@@ -360,18 +340,22 @@ int main(int argc, char *argv[])
 		  y[0] = 1.0;
 		  y[1] = 0.0;
 	  } else if(x[0] < 0.45){
-		  y[0] = 4.5 - 10*x[0];
+		  y[0] = 4.5 - 10.0*x[0];
 		  y[1] = 0.0;
 	  } else {
 		  y = 0.0;
 	  }
 	}); 
-   
+
+   if(debug)
+   {
+     ostringstream mesh_name;
+     mesh_name << "mesh." << setfill('0') << setw(6) << myid;
+     ofstream mesh_ofs(mesh_name.str().c_str());
+     mesh_ofs.precision(8);
+     pmesh.Print(mesh_ofs);
+   } 
 	
-   //Phi = 0.0;
-   ParGridFunction Phidotdotgf(&feVECspace);  // same order as fespace
-
-
    //New compared to ex1mod4:
    //Here try to set up time dependence/ time integrator
    int true_size = feVECspace.GetTrueVSize();
@@ -489,18 +473,8 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    Phi.SetFromTrueDofs(x);
    PhiDot.SetFromTrueDofs(v);
 
-   // Wrap dxdt into GridFunctions
-   ParGridFunction ddphi;
-   ddphi.MakeTRef(&feVECspace, dx_dt, 0);
-
-
-   //Copied one-step calculation
-   Array<int> ess_tdof_list;
-
-
    ParLinearForm b(&fespace);
    ConstantCoefficient one(1.0);
-   int nv = mesh.GetNV();
    int dim = 2;
    
    RHSg gCoeff(Phi, PhiDot);
@@ -508,23 +482,12 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    b.AddDomainIntegrator(new DomainLFIntegrator(gCoeff));
    b.Assemble();
 
-   //    Define the solution vector x as a finite element grid function
-   //    corresponding to fespace. Initialize x with initial guess of zero,
-   //    which satisfies the boundary conditions.
-   ParGridFunction x2(&fespace);
-   x2 = 0.0;
-
-   //    Set up the bilinear form a(.,.) on the finite element space
-   //    corresponding to the Laplacian operator -Delta, by adding the Diffusion
-   //    domain integrator.
    ParBilinearForm a(&fespace);
    
    double alpha = 0.1; 
    a.AddDomainIntegrator(new MassIntegrator); 
-   
    MassMatrix1 M(Phi, alpha);
    a.AddDomainIntegrator(new DiffusionIntegrator(M));
-
 
    //Calculate the gradients of each component of Phi
    //Split phi into components
@@ -549,25 +512,22 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    InnerProductCoefficient Lambda1(Lpt1, Lpt1);             //This is a scalar coefficient
    a.AddDomainIntegrator(new MassIntegrator(Lambda1));
    
-   
    LambdaDivPart Lpt2(Phi, gradXGrid, gradYGrid, alpha);
    InvJac DPhiInv(Phi);                                     //Computes the inverse Jacobian of Phi
    MatrixVectorProductCoefficient Lambda2(DPhiInv, Lpt2);   //This is a vector coefficient
    a.AddDomainIntegrator(new MixedDirectionalDerivativeIntegrator(Lambda2));
    a.AddDomainIntegrator(new TransposeIntegrator(new MixedDirectionalDerivativeIntegrator(Lambda2)));
 
-   //     Assemble the bilinear form and the corresponding linear system,
-   //     applying any necessary transformations such as: eliminating boundary
-   //     conditions, applying conforming constraints for non-conforming AMR,
-   //     static condensation, etc.
    a.Assemble();
-   OperatorPtr A;
-   Vector B, X;
-   a.FormLinearSystem(ess_tdof_list, x2, b, A, X, B);
+   a.Finalize();
+   HypreParMatrix *A = a.ParallelAssemble();
+
+   Vector B(fespace.TrueVSize()), X(fespace.TrueVSize());
+   X=0.0;
+   b.ParallelAssemble(B);
 
    // Solve the linear system A X = B.
-   Solver *prec = NULL;
-   prec = new HypreBoomerAMG;
+   Solver *prec = new HypreBoomerAMG;
    CGSolver cg(MPI_COMM_WORLD);
    cg.SetRelTol(1e-12);
    cg.SetMaxIter(2000);
@@ -577,9 +537,19 @@ void IGROperator::Mult(const Vector &vx, Vector &dvx_dt) const
    cg.Mult(B, X);
    delete prec;
 
+   //build x2 from TrueDofs X
+   ParGridFunction x2(&fespace);
+   x2.SetFromTrueDofs(X);
 
-   // Recover the solution as a finite element grid function.
-   a.RecoverFEMSolution(X, b, x2);
+   if(debug)
+   {
+     int myid = Mpi::WorldRank();
+     ostringstream sol_name;
+     sol_name << "x2." << setfill('0') << setw(6) << myid;
+     ofstream sol_ofs(sol_name.str().c_str());
+     sol_ofs.precision(8);
+     x2.Save(sol_ofs);
+   }
    
    //Recover Phi''
    TransposeMatrixCoefficient DPhiInvT(DPhiInv);
