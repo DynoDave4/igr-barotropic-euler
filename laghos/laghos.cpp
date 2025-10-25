@@ -584,26 +584,15 @@ int main(int argc, char *argv[])
    }
    if (impose_visc) { visc = true; }
    
-   
+
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
                                                 H1FESpace, L2FESpace, ess_tdofs,
                                                 rho0_coeff, rho0_gf,
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
-                                                order_q);
-   
-   if(useIGR){
-	   
-      hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
-                                                H1FESpace, L2FESpace, ess_tdofs,
-                                                rho0_coeff, rho0_gf,
-                                                mat_gf, source, cfl,
-                                                visc, vorticity, p_assembly,
-                                                cg_tol, cg_max_iter, ftz_tol,
-                                                order_q);
-      hydro.SetAlpha(alpha);
-   }
+                                                order_q, useIGR);
+   hydro.SetAlpha(alpha);
 
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";

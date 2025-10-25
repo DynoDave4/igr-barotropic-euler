@@ -40,6 +40,7 @@ protected:
 	//ParGridFunction x2;  // new field
 	ParFiniteElementSpace fespace2;
 	double alpha = 0.1;
+	bool useIGR = true;
 
 public:
     // Constructor: call base constructor first, then initialize your new member
@@ -54,15 +55,16 @@ public:
                            const double cfl,
                            const bool visc, const bool vort, const bool pa,
                            const double cgt, const int cgiter, double ftz_tol,
-                           const int order_q)
+                           const int order_q, bool useIGR_)
         : LagrangianHydroOperator(size, h1_fes, l2_fes, ess_tdofs, rho0_coeff, rho0_gf, gamma_gf,
                            source, cfl, visc, vort, pa,
                            cgt, cgiter, ftz_tol, order_q), 
-						   fespace2(pmesh, H1.FEColl(), 1, Ordering::byNODES) {}
+						   fespace2(pmesh, H1.FEColl(), 1, Ordering::byNODES), useIGR(useIGR_) {}
 
    void UpdateQuadratureDataIGR(const Vector &S) const;
-   void UpdateQuadratureData(const Vector &S) const{
-	   UpdateQuadratureDataIGR(S);
+   void UpdateQuadratureData(const Vector &S) const override{
+	   if(useIGR){	   UpdateQuadratureDataIGR(S); }
+	   else {LagrangianHydroOperator::UpdateQuadratureData(S);}
    };
 	
    void CalcIGRTerm(ParGridFunction &Phi, ParGridFunction &PhiDot, ParGridFunction &x) const;

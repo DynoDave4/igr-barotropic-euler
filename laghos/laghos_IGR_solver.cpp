@@ -279,6 +279,16 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
             const IntegrationPoint &ip = ir.IntPoint(q);
             T->SetIntPoint(&ip);
 			double IGR_Pressure = IGRpressure.GetValue(*T, ip); // New IGR term
+			/*DenseMatrix J(dim);
+            x.GetVectorGradient(*T, J);
+			DenseMatrix JinvT(J);
+            JinvT.Invert();     // JinvT now holds (Dx)^{-1}
+            JinvT.Transpose();
+			stress = JinvT;
+			stress *= -alpha;
+			stress *= IGR_Pressure;
+            for (int d = 0; d < dim; d++) { stress(d, d) -= p; }*/
+			
 			
             // Note that the Jacobian was already computed above. We've chosen
             // not to store the Jacobians for all batched quadrature points.
@@ -287,7 +297,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
             const double detJ = Jpr.Det(), rho = rho_b[z*nqp + q],
                          p = p_b[z*nqp + q], sound_speed = cs_b[z*nqp + q];
             stress = 0.0;
-            for (int d = 0; d < dim; d++) { stress(d, d) = IGR_Pressure-p; }
+            for (int d = 0; d < dim; d++) { stress(d, d) = alpha*IGR_Pressure-p; }
             double visc_coeff = 0.0;
             if (use_viscosity)
             {
@@ -453,10 +463,11 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &Phi, ParGridFuncti
    // 11. Solve the linear system A X = B.
    Solver *prec = NULL;
    prec = new HypreBoomerAMG;
+   ((HypreBoomerAMG *)prec)->SetPrintLevel(0);
    CGSolver cg(MPI_COMM_WORLD);
    cg.SetRelTol(1e-12);
    cg.SetMaxIter(2000);
-   cg.SetPrintLevel(1);
+   cg.SetPrintLevel(0);
    if (prec) { cg.SetPreconditioner(*prec); }
    cg.SetOperator(*A);
    cg.Mult(B, X);
