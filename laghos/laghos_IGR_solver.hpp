@@ -35,17 +35,16 @@ namespace hydrodynamics
 class LagrangianIGRHydroOperator : public LagrangianHydroOperator
 {
 protected:
-    //ParGridFunction Phi2;  // new field
-	//ParGridFunction PhiDot2;  // new field
-	//ParGridFunction x2;  // new field
-	ParFiniteElementSpace fespace2;
+	mutable ParFiniteElementSpace fespace;
 	double alpha = 0.1;
 	bool useIGR = true;
+
 
 public:
     // Constructor: call base constructor first, then initialize your new member
     LagrangianIGRHydroOperator(const int size,
                            ParFiniteElementSpace &h1_fes,
+                           ParFiniteElementSpace &h1_fescalar,
                            ParFiniteElementSpace &l2_fes,
                            const Array<int> &ess_tdofs,
                            Coefficient &rho0_coeff,
@@ -59,7 +58,7 @@ public:
         : LagrangianHydroOperator(size, h1_fes, l2_fes, ess_tdofs, rho0_coeff, rho0_gf, gamma_gf,
                            source, cfl, visc, vort, pa,
                            cgt, cgiter, ftz_tol, order_q), 
-						   fespace2(pmesh, H1.FEColl(), 1, Ordering::byNODES), useIGR(useIGR_) {}
+						   fespace(h1_fescalar), useIGR(useIGR_) {}
 
    void UpdateQuadratureDataIGR(const Vector &S) const;
    void UpdateQuadratureData(const Vector &S) const override{

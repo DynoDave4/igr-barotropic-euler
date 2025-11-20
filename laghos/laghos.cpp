@@ -445,6 +445,7 @@ int main(int argc, char *argv[])
    H1_FECollection H1FEC(order_v, dim);
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
+   ParFiniteElementSpace H1FEScalarSpace(pmesh, &H1FEC, 1, Ordering::byNODES);
 
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
@@ -486,6 +487,7 @@ int main(int argc, char *argv[])
 
    const HYPRE_BigInt glob_size_l2 = L2FESpace.GlobalTrueVSize();
    const HYPRE_BigInt glob_size_h1 = H1FESpace.GlobalTrueVSize();
+   const HYPRE_BigInt glob_size_h1_scal = H1FEScalarSpace.GlobalTrueVSize();
    if (Mpi::Root())
    {
       cout << "Number of kinematic (position, velocity) dofs: "
@@ -500,21 +502,25 @@ int main(int argc, char *argv[])
    // - 2 -> specific internal energy
    const int Vsize_l2 = L2FESpace.GetVSize();
    const int Vsize_h1 = H1FESpace.GetVSize();
-   Array<int> offset(4);
+   const int Vsize_h12 = H1FESpace.GetVSize();
+   const int Vsize_igr = H1FEScalarSpace.GetVSize();
+   Array<int> offset(5);
    offset[0] = 0;
    offset[1] = offset[0] + Vsize_h1;
    offset[2] = offset[1] + Vsize_h1;
    offset[3] = offset[2] + Vsize_l2;
+   offset[4] = offset[3] + Vsize_igr;
    BlockVector S(offset, Device::GetMemoryType());
 
    // Define GridFunction objects for the position, velocity and specific
    // internal energy. There is no function for the density, as we can always
    // compute the density values given the current mesh position, using the
    // property of pointwise mass conservation.
-   ParGridFunction x_gf, v_gf, e_gf;
+   ParGridFunction x_gf, v_gf, e_gf, igr_gf;
    x_gf.MakeRef(&H1FESpace, S, offset[0]);
    v_gf.MakeRef(&H1FESpace, S, offset[1]);
    e_gf.MakeRef(&L2FESpace, S, offset[2]);
+   igr_gf.MakeRef(&H1FEScalarSpace, S, offset[3]);
 
    // Initialize x_gf using the starting mesh coordinates.
    pmesh->SetNodalGridFunction(&x_gf);
@@ -560,6 +566,9 @@ int main(int argc, char *argv[])
    // Sync the data location of e_gf with its base, S
    e_gf.SyncAliasMemory(S);
 
+   igr_gf = 0.0;
+   igr_gf.SyncAliasMemory(S);
+
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
    L2_FECollection mat_fec(0, pmesh->Dimension());
@@ -580,13 +589,14 @@ int main(int argc, char *argv[])
       case 5: visc = true; break;
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
+	   case 8: visc = false; break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
-   
+   if (useIGR) { visc = false; }
 
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
-                                                H1FESpace, L2FESpace, ess_tdofs,
+                                                H1FESpace, H1FEScalarSpace, L2FESpace, ess_tdofs,
                                                 rho0_coeff, rho0_gf,
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
@@ -594,7 +604,7 @@ int main(int argc, char *argv[])
                                                 order_q, useIGR);
    hydro.SetAlpha(alpha);
 
-   socketstream vis_rho, vis_v, vis_e;
+   socketstream vis_rho, vis_v, vis_e, vis_igr;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
@@ -611,6 +621,7 @@ int main(int argc, char *argv[])
       vis_rho.precision(8);
       vis_v.precision(8);
       vis_e.precision(8);
+      vis_igr.precision(8);
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
       int offx = Ww+10; // window offsets
@@ -625,6 +636,10 @@ int main(int argc, char *argv[])
       Wx += offx;
       hydrodynamics::VisualizeField(vis_e, vishost, visport, e_gf,
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
+
+      Wx += offx;
+      hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
+                                    "IGR", Wx, Wy, Ww, Wh);
    }
 
    // Save data for VisIt visualization.
@@ -634,6 +649,7 @@ int main(int argc, char *argv[])
       visit_dc.RegisterField("Density",  &rho_gf);
       visit_dc.RegisterField("Velocity", &v_gf);
       visit_dc.RegisterField("Specific Internal Energy", &e_gf);
+      visit_dc.RegisterField("IGR", &igr_gf);
       visit_dc.SetCycle(0);
       visit_dc.SetTime(0.0);
       visit_dc.Save();
@@ -712,6 +728,7 @@ int main(int argc, char *argv[])
       x_gf.SyncAliasMemory(S);
       v_gf.SyncAliasMemory(S);
       e_gf.SyncAliasMemory(S);
+      igr_gf.SyncAliasMemory(S);
 
       // Make sure that the mesh corresponds to the new solution state. This is
       // needed, because some time integrators use different S-type vectors
@@ -775,7 +792,11 @@ int main(int argc, char *argv[])
             Wx += offx;
             hydrodynamics::VisualizeField(vis_e, vishost, visport, e_gf,
                                           "Specific Internal Energy",
-                                          Wx, Wy, Ww,Wh);
+                                          Wx, Wy, Ww, Wh);
+            Wx += offx;
+            hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
+                                          "Specific Internal Energy",
+                                          Wx, Wy, Ww, Wh);
             Wx += offx;
          }
 
@@ -788,12 +809,12 @@ int main(int argc, char *argv[])
 
          if (gfprint)
          {
-            std::ostringstream mesh_name, rho_name, v_name, e_name;
+            std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
             mesh_name << basename << "_" << ti << "_mesh";
             rho_name  << basename << "_" << ti << "_rho";
             v_name << basename << "_" << ti << "_v";
             e_name << basename << "_" << ti << "_e";
-
+            igr_name  << basename << "_" << ti << "_igr";
             std::ofstream mesh_ofs(mesh_name.str().c_str());
             mesh_ofs.precision(8);
             pmesh->PrintAsOne(mesh_ofs);
@@ -813,6 +834,11 @@ int main(int argc, char *argv[])
             e_ofs.precision(8);
             e_gf.SaveAsOne(e_ofs);
             e_ofs.close();
+
+            std::ofstream igr_ofs(igr_name.str().c_str());
+            igr_ofs.precision(8);
+            igr_gf.SaveAsOne(igr_ofs);
+            igr_ofs.close();
          }
       }
 
@@ -920,6 +946,7 @@ double rho0(const Vector &x)
       }
       case 7: return x(1) >= 0.0 ? 2.0 : 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
+      case 8: return 1.0;
    }
 }
 
@@ -937,6 +964,7 @@ double gamma_func(const Vector &x)
       case 5: return 1.4;
       case 6: return 1.4;
       case 7: return 5.0 / 3.0;
+      case 8: return 5.0 / 3.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1003,6 +1031,20 @@ void v0(const Vector &x, Vector &v)
       {
          v = 0.0;
          v(1) = 0.02 * exp(-2*M_PI*x(1)*x(1)) * cos(2*M_PI*x(0));
+         break;
+      }
+      case 8:
+      {  
+         v = 0.0;   // Shock 2
+         if(x(0) < 0.1){
+            v(0) = 0.0;
+         } else if(x(0) < 0.2){
+            v(0) = 10*x(0) - 1.0;
+         } else if(x(0) < 0.35){
+		      v(0) = 1.0;
+	      } else if(x(0) < 0.45){
+		      v(0) = 4.5 - 10*x(0);
+	      }
          break;
       }
       default: MFEM_ABORT("Bad number given for problem id!");
@@ -1074,6 +1116,7 @@ double e0(const Vector &x)
          const double rho = rho0(x), gamma = gamma_func(x);
          return (6.0 - rho * x(1)) / (gamma - 1.0) / rho;
       }
+      case 8: return 0.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }

@@ -207,11 +207,12 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
    LAGHOS_DEVICE_SYNC;
    timer.sw_qdata.Start();
    const int nqp = ir.GetNPoints();
-   ParGridFunction x, v, e;
+   ParGridFunction x, v, e, igr;
    Vector* sptr = const_cast<Vector*>(&S);
    x.MakeRef(&H1, *sptr, 0);
    v.MakeRef(&H1, *sptr, H1.GetVSize());
    e.MakeRef(&L2, *sptr, 2*H1.GetVSize());
+   igr.MakeRef(&fespace, *sptr, 2*H1.GetVSize() + L2.GetVSize());
    Vector e_vals;
    DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
 
@@ -268,27 +269,15 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
 
       z_id -= nzones_batch;
 	  
-	  ParFiniteElementSpace fespace(pmesh, H1.FEColl(), 1, Ordering::byNODES);
-	  ParGridFunction IGRpressure(&fespace);
-	  CalcIGRTerm(x, v, IGRpressure);
+	  //ParFiniteElementSpace fespace(pmesh, H1.FEColl(), 1, Ordering::byNODES);
+	  //ParGridFunction IGRpressure(&fespace);
+	  CalcIGRTerm(x, v, igr);
       for (int z = 0; z < nzones_batch; z++)
       {
          ElementTransformation *T = H1.GetElementTransformation(z_id);
          for (int q = 0; q < nqp; q++)
          {
-            const IntegrationPoint &ip = ir.IntPoint(q);
-            T->SetIntPoint(&ip);
-			double IGR_Pressure = IGRpressure.GetValue(*T, ip); // New IGR term
-			/*DenseMatrix J(dim);
-            x.GetVectorGradient(*T, J);
-			DenseMatrix JinvT(J);
-            JinvT.Invert();     // JinvT now holds (Dx)^{-1}
-            JinvT.Transpose();
-			stress = JinvT;
-			stress *= -alpha;
-			stress *= IGR_Pressure;
-            for (int d = 0; d < dim; d++) { stress(d, d) -= p; }*/
-			
+            			
 			
             // Note that the Jacobian was already computed above. We've chosen
             // not to store the Jacobians for all batched quadrature points.
@@ -296,8 +285,36 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
             CalcInverse(Jpr, Jinv);
             const double detJ = Jpr.Det(), rho = rho_b[z*nqp + q],
                          p = p_b[z*nqp + q], sound_speed = cs_b[z*nqp + q];
-            stress = 0.0;
-            for (int d = 0; d < dim; d++) { stress(d, d) = alpha*IGR_Pressure-p; }
+						
+			//Set Stress + IGR pressure			
+			const IntegrationPoint &ip = ir.IntPoint(q);
+            T->SetIntPoint(&ip);
+			
+			//double IGR_Pressure = igr.GetValue(*T, ip); // New IGR term
+			/*stress = 0.0;
+			DenseMatrix J(dim);
+            x.GetVectorGradient(*T, J);
+			DenseMatrix JinvT(J);
+            JinvT.Invert();     // JinvT now holds (Dx)^{-1}
+            JinvT.Transpose();
+			stress = JinvT;
+			stress *= alpha;
+			stress *= IGR_Pressure;
+            for (int d = 0; d < dim; d++) { stress(d, d) -= p; }*/
+            //for (int d = 0; d < dim; d++) { stress(d, d) = alpha*IGR_Pressure-p; }
+			
+			const double igr_p = igr.GetValue(*T, ip);
+
+            // If you truly want (Dx)^{-T} scaling:
+            DenseMatrix Dx(dim); x.GetVectorGradient(*T, Dx);
+            DenseMatrix JinvT(Dx); JinvT.Invert(); JinvT.Transpose();
+
+            //stress = JinvT;
+            stress = 0.0; stress(0,0) = 1.0; stress(1,1) = 1.0; // Identity                   
+            stress *= alpha * igr_p;            
+            for (int d = 0; d < dim; d++) { stress(d,d) -= p; }
+            
+
             double visc_coeff = 0.0;
             if (use_viscosity)
             {
@@ -462,16 +479,19 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &Phi, ParGridFuncti
 
    // 11. Solve the linear system A X = B.
    Solver *prec = NULL;
-   prec = new HypreBoomerAMG;
-   ((HypreBoomerAMG *)prec)->SetPrintLevel(0);
+   //prec = new HypreBoomerAMG;
+   //((HypreBoomerAMG *)prec)->SetPrintLevel(0);
+   //prec = new HypreIdentity;
+   HypreSmoother M_prec;
+   M_prec.SetType(HypreSmoother::Jacobi);
    CGSolver cg(MPI_COMM_WORLD);
    cg.SetRelTol(1e-12);
    cg.SetMaxIter(2000);
    cg.SetPrintLevel(0);
-   if (prec) { cg.SetPreconditioner(*prec); }
+   if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(B, X);
-   delete prec;
+   //delete prec;
 
    // 12. Recover the solution as a finite element grid function.
    a.RecoverFEMSolution(X, b, x);
