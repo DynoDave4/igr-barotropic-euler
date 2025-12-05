@@ -124,8 +124,9 @@ int main(int argc, char *argv[])
    bool gpu_aware_mpi = false;
    int dev = 0;
    double blast_energy = 0.25;
-   double blast_position[] = {0.0, 0.0, 0.0};
+   double blast_position[] = {0.5, 0.5, 0.5};
    double alpha = 0.1;
+   double stallIGR = -0.1;
    bool useIGR = true;
 
    bool enable_nc = true;
@@ -151,6 +152,8 @@ int main(int argc, char *argv[])
                   "Alpha as the level of IGR");
    args.AddOption(&useIGR, "-igr", "--use-igr", "-noigr",
                   "--no-igr", "Do we add the igr term?");
+   args.AddOption(&stallIGR, "-sigr", "--stall-igr",
+                  "Do we run without igr for a bit first?");
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
                   "ODE solver: 1 - Forward Euler,\n\t"
                   "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6,\n\t"
@@ -547,15 +550,20 @@ int main(int argc, char *argv[])
    FunctionCoefficient rho0_coeff(rho0);
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
-   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
+   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes), l2_one(&l2_fes);
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
    if (problem == 1)
    {
       // For the Sedov test, we use a delta function at the origin.
-      DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
+	  ConstantCoefficient one(1.0);
+	  l2_one.ProjectCoefficient(one);
+	  DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
                                blast_position[2], blast_energy);
+	  //SumCoefficient ls()
       l2_e.ProjectCoefficient(e_coeff);
+	  l2_e += l2_one;
+	  
    }
    else
    {
@@ -593,7 +601,7 @@ int main(int argc, char *argv[])
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
-   if (useIGR) { visc = false; }
+   bool visc_igr = impose_visc;
 
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
                                                 H1FESpace, H1FEScalarSpace, L2FESpace, ess_tdofs,
@@ -638,8 +646,11 @@ int main(int argc, char *argv[])
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
 
       Wx += offx;
-      hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
-                                    "IGR", Wx, Wy, Ww, Wh);
+	  if(useIGR){
+         hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
+                                       "IGR", Wx, Wy, Ww, Wh);
+	     Wx += offx;
+	  }
    }
 
    // Save data for VisIt visualization.
@@ -688,7 +699,15 @@ int main(int argc, char *argv[])
    //      cout << endl;
    //   }
    for (int ti = 1; !last_step; ti++)
-   {
+   {  
+      if(t < stallIGR){
+		  hydro.UpdateUseVisc(true);
+		  hydro.UpdateUseIGR(false);
+	  } else{
+		  hydro.UpdateUseVisc(visc);
+		  hydro.UpdateUseIGR(useIGR);
+	  }
+
       if (t + dt >= t_final)
       {
          dt = t_final - t;
@@ -794,10 +813,11 @@ int main(int argc, char *argv[])
                                           "Specific Internal Energy",
                                           Wx, Wy, Ww, Wh);
             Wx += offx;
-            hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
-                                          "Specific Internal Energy",
-                                          Wx, Wy, Ww, Wh);
-            Wx += offx;
+            if(useIGR && t > stallIGR){
+               hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
+                                             "IGR", Wx, Wy, Ww, Wh);
+	           Wx += offx;
+	        }
          }
 
          if (visit)
@@ -860,7 +880,7 @@ int main(int argc, char *argv[])
       }
    }
    MFEM_VERIFY(!check || checks == 2, "Check error!");
-
+ 
    switch (ode_solver_type)
    {
       case 2: steps *= 2; break;

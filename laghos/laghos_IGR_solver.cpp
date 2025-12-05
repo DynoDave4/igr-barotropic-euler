@@ -28,155 +28,45 @@
 namespace mfem
 {
 	
-
-class MassMatrix1 : public MatrixCoefficient
+class RHSgScal : public Coefficient //Takes in one term
 {
    private:
-      GridFunction &phi; // vector-valued GridFunction
-	  double alpha;
+      GridFunction &u; // vector-valued GridFunction
    public:
-      MassMatrix1(GridFunction &phi_, double alpha_) : MatrixCoefficient(phi_.FESpace()->GetVDim()), phi(phi_), alpha(alpha_) {}
-
-   virtual void Eval(DenseMatrix &M, ElementTransformation &T, const IntegrationPoint &ip)
-   {
-      T.SetIntPoint(&ip);
-	  int dim = phi.FESpace()->GetVDim();
-
-      DenseMatrix Jac;
-      phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
-	  Jac(0,0) += 1.0; Jac(1,1) += 1.0;
-
-	  DenseMatrix Jac_inv, Jac_invT;
-	  Jac_inv = Jac;
-	  Jac_inv.Invert();
-	  
-	  Jac_invT = Jac_inv;
-	  Jac_invT.Transpose();
-	  
-	  M.SetSize(dim, dim);
-	  M = 0.0;
-	  AddMult(Jac_inv, Jac_invT, M);
-	  for (int i = 0; i < dim; i++)
-      {
-         for (int j = 0; j < dim; j++)
-         { M(i,j) *= alpha; }
-	  }	 
-   }
-};
-
-class LambdaDivPart : public VectorCoefficient
-{
-   private:
-      GridFunction &phi; // vector-valued GridFunction
-      GridFunction &gradX; // vector-valued GridFunction
-      GridFunction &gradY; // vector-valued GridFunction
-	  double alpha;
-   public:
-      LambdaDivPart(GridFunction &phi_, GridFunction &gradX_, GridFunction &gradY_, double alpha_) : 
-           VectorCoefficient(phi_.FESpace()->GetVDim()), phi(phi_), gradX(gradX_), gradY(gradY_), alpha(alpha_) {}
-
-   virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
-   {
-     T.SetIntPoint(&ip);
-	  int dim = phi.FESpace()->GetVDim();
-
-     
-     //Hessian and Jacobian calculations at a point
-     DenseMatrix Jac, HessX, HessY;
-     phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
-	 Jac(0,0) += 1.0; Jac(1,1) += 1.0;
-     gradX.GetVectorGradient(T, HessX);
-     gradY.GetVectorGradient(T, HessY);
-	  DenseMatrix Jac_inv; Jac_inv = Jac; Jac_inv.Invert();
-
-	  //Ax and Ay store pieces of each hessian
-	  DenseMatrix Ax(dim, dim), Ay(dim, dim);
-      Ax(0,0) = HessX(0,0); Ax(0,1) = HessX(0,1);
-      Ay(0,0) = HessX(1,0); Ay(0,1) = HessX(1,1);
-      Ax(1,0) = HessY(0,0); Ax(1,1) = HessY(0,1);
-      Ay(1,0) = HessY(1,0); Ay(1,1) = HessY(1,1);
-	  
-	  //Multiply by the inverse Jacobian
-	  DenseMatrix Bx(dim, dim), By(dim, dim);
-	  Bx = 0.0; AddMult(Ax, Jac_inv, Bx);
-	  By = 0.0; AddMult(Ay, Jac_inv, By);
-	  
-     //Multiply by the inverse Jacobian again, this is the (-) derivative of the inverse of the hessian
-	  DenseMatrix Cx(dim, dim), Cy(dim, dim);
-      Cx = 0.0; AddMult(Jac_inv, Bx, Cx);  // Cx = [DΦ]^{-1} ∂x[DΦ] [DΦ]^{-1}
-	  Cy = 0.0; AddMult(Jac_inv, By, Cy);  // Cy = [DΦ]^{-1} ∂y[DΦ] [DΦ]^{-1}
-	  
-     //Output
-	  V.SetSize(dim);    //Coefficients of Lambda2
-	  V(0) = alpha*(-1*Cx(0,0) - Cy(1,0));
-	  V(1) = alpha*(-1*Cx(0,1) - Cy(1,1));
-	  
-	  
-   }
-};
-
-class InvJac : public MatrixCoefficient
-{
-   private:
-      GridFunction &phi; // vector-valued GridFunction
-   public:
-      InvJac(GridFunction &phi_) : MatrixCoefficient(phi_.FESpace()->GetVDim()), phi(phi_) {}
-
-   virtual void Eval(DenseMatrix &M, ElementTransformation &T, const IntegrationPoint &ip)
-   {
-      T.SetIntPoint(&ip);
-	  int dim = phi.FESpace()->GetVDim();
-
-      DenseMatrix Jac;
-      phi.GetVectorGradient(T, Jac);  // Jac(i,j) = d phi_i / dx_j
-	  Jac(0,0) += 1.0; Jac(1,1) += 1.0;
-	  
-	  M.SetSize(dim, dim);
-	  M = Jac;
-	  M.Invert();
-   }
-};
-
-class RHSg : public Coefficient //Takes in two terms
-{
-   private:
-      GridFunction &phi; // vector-valued GridFunction
-	  GridFunction &phidot; // vector-valued GridFunction
-   public:
-      RHSg(GridFunction &phi_, GridFunction &phidot_) : phi(phi_), phidot(phidot_) {}
+      RHSgScal(GridFunction &u_) : u(u_) {}
 
    virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
    {
-	   T.SetIntPoint(&ip);
-	   int dim = phi.FESpace()->GetVDim();
+	  T.SetIntPoint(&ip);
+	  int dim = u.FESpace()->GetVDim();
 
-      DenseMatrix JacInv(dim, dim), JacDot(dim, dim);
-      phi.GetVectorGradient(T, JacInv); 
-	  JacInv(0,0) += 1.0; JacInv(1,1) += 1.0; 
-	  JacInv.Invert();
-      phidot.GetVectorGradient(T, JacDot);
+      DenseMatrix Jac(dim, dim);
+      u.GetVectorGradient(T, Jac);
 
-      DenseMatrix Mat(dim, dim), MatSqd(dim, dim);
-      Mat = 0.0; AddMult(JacInv, JacDot, Mat);
-      MatSqd = 0.0; AddMult(Mat, Mat, MatSqd);	  
+      DenseMatrix JacSqd(dim, dim);
+      JacSqd = 0.0; AddMult(Jac, Jac, JacSqd);	
 	  
-      return (Mat(0,0) + Mat(1,1))*(Mat(0,0) + Mat(1,1)) + (MatSqd(0,0) + MatSqd(1,1));
+	  double trace = 0.0, sqtrace = 0.0;
+
+      for(int i = 0; i<dim; i++){ 
+	     trace += Jac(i,i);
+         sqtrace += JacSqd(i,i);		 
+	  }
+		  
+      return trace*trace + sqtrace;
    }
 };
 
-class myGradScal : public VectorCoefficient
+class ScalInv : public Coefficient //Takes in two terms
 {
    private:
-      int dim;
-      GridFunction &x;   //scalar valued
+      GridFunction &u; // vector-valued GridFunction
    public:
-      myGradScal(int dim_, GridFunction &x_) : VectorCoefficient(dim_), dim(dim_), x(x_) {}
+      ScalInv(GridFunction &u_) : u(u_) {}
 
-   virtual void Eval(Vector &V, ElementTransformation &T, const IntegrationPoint &ip)
+   virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
    {
-      T.SetIntPoint(&ip);
-      V.SetSize(dim);
-      x.GetGradient(T, V);
+      return 1.0 / u.GetValue(T, ip);
    }
 };
 
@@ -271,14 +161,13 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
 	  
 	  //ParFiniteElementSpace fespace(pmesh, H1.FEColl(), 1, Ordering::byNODES);
 	  //ParGridFunction IGRpressure(&fespace);
-	  CalcIGRTerm(x, v, igr);
+	  CalcIGRTerm(v, igr);
       for (int z = 0; z < nzones_batch; z++)
       {
          ElementTransformation *T = H1.GetElementTransformation(z_id);
          for (int q = 0; q < nqp; q++)
          {
-            			
-			
+
             // Note that the Jacobian was already computed above. We've chosen
             // not to store the Jacobians for all batched quadrature points.
             const DenseMatrix &Jpr = Jpr_b[z](q);
@@ -290,33 +179,13 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
 			const IntegrationPoint &ip = ir.IntPoint(q);
             T->SetIntPoint(&ip);
 			
-			//double IGR_Pressure = igr.GetValue(*T, ip); // New IGR term
-			/*stress = 0.0;
-			DenseMatrix J(dim);
-            x.GetVectorGradient(*T, J);
-			DenseMatrix JinvT(J);
-            JinvT.Invert();     // JinvT now holds (Dx)^{-1}
-            JinvT.Transpose();
-			stress = JinvT;
-			stress *= alpha;
-			stress *= IGR_Pressure;
-            for (int d = 0; d < dim; d++) { stress(d, d) -= p; }*/
-            //for (int d = 0; d < dim; d++) { stress(d, d) = alpha*IGR_Pressure-p; }
-			
 			const double igr_p = igr.GetValue(*T, ip);
-
-            // If you truly want (Dx)^{-T} scaling:
-            DenseMatrix Dx(dim); x.GetVectorGradient(*T, Dx);
-            DenseMatrix JinvT(Dx); JinvT.Invert(); JinvT.Transpose();
-
-            //stress = JinvT;
-            stress = 0.0; stress(0,0) = 1.0; stress(1,1) = 1.0; // Identity                   
-            stress *= alpha * igr_p;            
-            for (int d = 0; d < dim; d++) { stress(d,d) -= p; }
+            stress = 0.0;            
+            for (int d = 0; d < dim; d++) { stress(d,d) = alpha * igr_p - p; }
             
 
             double visc_coeff = 0.0;
-            if (use_viscosity)
+            if (use_viscosity_igr)
             {
                // Compression-based length scale at the point. The first
                // eigenvector of the symmetric velocity gradient gives the
@@ -410,91 +279,65 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
 
 
 
-void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &Phi, ParGridFunction &PhiDot, ParGridFunction &x) const
+void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction &x) const
 {
-   ParFiniteElementSpace fespace(pmesh, H1.FEColl(), 1, Ordering::byNODES);
-   //  Here I replaced feVECspace with the existing H1
+   int myid = Mpi::WorldRank();
+
+   //Some basic densities
+   ParGridFunction Rho(&fespace);
+   ComputeDensity(Rho);
+   ScalInv RhoInv(Rho);
+   double rho_min = Rho.Min();
+   double rho_max = Rho.Max();
+   if(rho_min < 0.0 && myid == 0){
+	   mfem::out << "rho in [" << rho_min << ", " << rho_max << "]\n";
+   }
+   ProductCoefficient AlphaRhoInv(alpha, RhoInv);
    
-   Array<int> ess_tdof_list;
-
-
+   
+   //Set up linear form (RHS)
    ParLinearForm b(&fespace);
-   ConstantCoefficient one(1.0);
-   //int nv = pmesh.GetNV();
-   //ParFiniteElementSpace feVECspace(&pmesh, fec, dim);
-   //ParGridFunction Phi(&feVECspace), PhiDot(&feVECspace);
-      
-   
-   
-   RHSg gCoeff(Phi, PhiDot);
-   
-   b.AddDomainIntegrator(new DomainLFIntegrator(gCoeff));
+   RHSgScal gCoeffScal(u);
+   b.AddDomainIntegrator(new DomainLFIntegrator(gCoeffScal));
    b.Assemble();
 
-   //ParGridFunction x(&fespace);
-   x = 0.0;
-
+   //Set up bilinear form (LHS)
    ParBilinearForm a(&fespace);
-   a.AddDomainIntegrator(new MassIntegrator); 
-   MassMatrix1 M(Phi, alpha);
-   a.AddDomainIntegrator(new DiffusionIntegrator(M));
-
-
-
-   //Calculate the gradients of each component of Phi
-   //Split phi into components
-   Vector e0(2); e0(0) = 1.0; e0(1) = 0.0;
-   Vector e1(2); e1(0) = 0.0; e1(1) = 1.0;
-   VectorConstantCoefficient e0Coeff(e0), e1Coeff(e1);
-   VectorGridFunctionCoefficient PhiCoeff(&Phi);
-   InnerProductCoefficient comp0(PhiCoeff, e0Coeff), comp1(PhiCoeff, e1Coeff);
-   ParGridFunction comp0grid(&fespace), comp1grid(&fespace);
-   comp0grid.ProjectCoefficient(comp0);
-   comp1grid.ProjectCoefficient(comp1);
-
-   //Each scalar piece has a gradient
-   GradientGridFunctionCoefficient gradX(&comp0grid);
-   GradientGridFunctionCoefficient gradY(&comp1grid);
-   ParGridFunction gradXGrid(&H1), gradYGrid(&H1);
-   gradXGrid.ProjectCoefficient(gradX);
-   gradYGrid.ProjectCoefficient(gradY);
+   a.AddDomainIntegrator(new MassIntegrator(RhoInv)); 
+   a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInv));
    
-   
-   LambdaDivPart Lpt1(Phi, gradXGrid, gradYGrid, sqrt(alpha));                    //Custom Vector Coefficient
-   InnerProductCoefficient Lambda1(Lpt1, Lpt1);             //This is a scalar coefficient
-   a.AddDomainIntegrator(new MassIntegrator(Lambda1));
-   
-   
-   LambdaDivPart Lpt2(Phi, gradXGrid, gradYGrid, alpha);
-   InvJac DPhiInv(Phi);                                     //Computes the inverse Jacobian of Phi
-   MatrixVectorProductCoefficient Lambda2(DPhiInv, Lpt2);   //This is a vector coefficient
-   a.AddDomainIntegrator(new MixedDirectionalDerivativeIntegrator(Lambda2));
-   a.AddDomainIntegrator(new TransposeIntegrator(new MixedDirectionalDerivativeIntegrator(Lambda2)));
 
+
+   // 10. Assemble the bilinear form and the corresponding linear system,
+   //     applying any necessary transformations such as: eliminating boundary
+   //     conditions, applying conforming constraints for non-conforming AMR,
+   //     static condensation, etc.
    a.Assemble();
+   a.Finalize();
+   HypreParMatrix *A = a.ParallelAssemble();
 
-   OperatorPtr A;
-   Vector B, X;
-   a.FormLinearSystem(ess_tdof_list, x, b, A, X, B);
+   Vector Bigr(fespace.TrueVSize()), Xigr(fespace.TrueVSize());
+   x.GetTrueDofs(Xigr);
+   b.ParallelAssemble(Bigr);
+
+
+   //cout << "Size of linear system: " << A->Height() << endl;
 
    // 11. Solve the linear system A X = B.
-   Solver *prec = NULL;
-   //prec = new HypreBoomerAMG;
-   //((HypreBoomerAMG *)prec)->SetPrintLevel(0);
-   //prec = new HypreIdentity;
    HypreSmoother M_prec;
    M_prec.SetType(HypreSmoother::Jacobi);
    CGSolver cg(MPI_COMM_WORLD);
+   cg.iterative_mode = true;
    cg.SetRelTol(1e-12);
-   cg.SetMaxIter(2000);
-   cg.SetPrintLevel(0);
+   cg.SetMaxIter(50);
+   cg.SetPrintLevel(-1);
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
-   cg.Mult(B, X);
-   //delete prec;
-
-   // 12. Recover the solution as a finite element grid function.
-   a.RecoverFEMSolution(X, b, x);
+   cg.Mult(Bigr, Xigr);
+   //delete M_prec;
+   delete A;
+   
+   x.SetFromTrueDofs(Xigr);
    x *= -1.0;
    
 }

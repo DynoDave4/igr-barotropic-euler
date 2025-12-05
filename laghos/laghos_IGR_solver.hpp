@@ -36,8 +36,12 @@ class LagrangianIGRHydroOperator : public LagrangianHydroOperator
 {
 protected:
 	mutable ParFiniteElementSpace fespace;
-	double alpha = 0.1;
 	bool useIGR = true;
+	mutable bool use_viscosity_igr;
+	mutable CGSolver cg_igr;
+	mutable HypreBoomerAMG amg_prec; //not used
+	double alpha = 0.001;
+	
 
 
 public:
@@ -58,15 +62,24 @@ public:
         : LagrangianHydroOperator(size, h1_fes, l2_fes, ess_tdofs, rho0_coeff, rho0_gf, gamma_gf,
                            source, cfl, visc, vort, pa,
                            cgt, cgiter, ftz_tol, order_q), 
-						   fespace(h1_fescalar), useIGR(useIGR_) {}
+						   fespace(h1_fescalar), useIGR(useIGR_), use_viscosity_igr(visc),
+                           cg_igr(MPI_COMM_WORLD), amg_prec()  {
+							   cg_igr.iterative_mode = true;
+                               cg_igr.SetRelTol(1e-12);
+                               cg_igr.SetMaxIter(2000);
+                               cg_igr.SetPrintLevel(0);
+                               amg_prec.SetPrintLevel(0);
+						   }
 
    void UpdateQuadratureDataIGR(const Vector &S) const;
    void UpdateQuadratureData(const Vector &S) const override{
 	   if(useIGR){	   UpdateQuadratureDataIGR(S); }
 	   else {LagrangianHydroOperator::UpdateQuadratureData(S);}
    };
+   void UpdateUseIGR(bool val) { useIGR = val;  };
+   void UpdateUseVisc(bool val) { use_viscosity_igr = val;  };
 	
-   void CalcIGRTerm(ParGridFunction &Phi, ParGridFunction &PhiDot, ParGridFunction &x) const;
+   void CalcIGRTerm(ParGridFunction &u, ParGridFunction &x) const;
    
    void SetAlpha(double a){
 	   alpha = a;
