@@ -601,8 +601,7 @@ int main(int argc, char *argv[])
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
-   if (useIGR) { visc = impose_visc; }
-   visc = impose_visc;
+   bool visc_igr = impose_visc;
 
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
                                                 H1FESpace, H1FEScalarSpace, L2FESpace, ess_tdofs,
@@ -881,7 +880,7 @@ int main(int argc, char *argv[])
       }
    }
    MFEM_VERIFY(!check || checks == 2, "Check error!");
-
+ 
    switch (ode_solver_type)
    {
       case 2: steps *= 2; break;

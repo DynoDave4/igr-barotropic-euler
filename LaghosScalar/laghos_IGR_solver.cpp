@@ -37,16 +37,23 @@ class RHSgScal : public Coefficient //Takes in one term
 
    virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
    {
-	   T.SetIntPoint(&ip);
-	   int dim = u.FESpace()->GetVDim();
+	  T.SetIntPoint(&ip);
+	  int dim = u.FESpace()->GetVDim();
 
       DenseMatrix Jac(dim, dim);
       u.GetVectorGradient(T, Jac);
 
       DenseMatrix JacSqd(dim, dim);
-      JacSqd = 0.0; AddMult(Jac, Jac, JacSqd);	  
+      JacSqd = 0.0; AddMult(Jac, Jac, JacSqd);	
 	  
-      return (Jac(0,0) + Jac(1,1))*(Jac(0,0) + Jac(1,1)) + (JacSqd(0,0) + JacSqd(1,1));
+	  double trace = 0.0, sqtrace = 0.0;
+
+      for(int i = 0; i<dim; i++){ 
+	     trace += Jac(i,i);
+         sqtrace += JacSqd(i,i);		 
+	  }
+		  
+      return trace*trace + sqtrace;
    }
 };
 
@@ -172,33 +179,13 @@ void LagrangianIGRHydroOperator::UpdateQuadratureDataIGR(const Vector &S) const
 			const IntegrationPoint &ip = ir.IntPoint(q);
             T->SetIntPoint(&ip);
 			
-			//double IGR_Pressure = igr.GetValue(*T, ip); // New IGR term
-			/*stress = 0.0;
-			DenseMatrix J(dim);
-            x.GetVectorGradient(*T, J);
-			DenseMatrix JinvT(J);
-            JinvT.Invert();     // JinvT now holds (Dx)^{-1}
-            JinvT.Transpose();
-			stress = JinvT;
-			stress *= alpha;
-			stress *= IGR_Pressure;
-            for (int d = 0; d < dim; d++) { stress(d, d) -= p; }*/
-            //for (int d = 0; d < dim; d++) { stress(d, d) = alpha*IGR_Pressure-p; }
-			
 			const double igr_p = igr.GetValue(*T, ip);
-
-            // If you truly want (Dx)^{-T} scaling:
-            //DenseMatrix Dx(dim); x.GetVectorGradient(*T, Dx);
-            //DenseMatrix JinvT(Dx); JinvT.Invert(); JinvT.Transpose();
-
-            //stress = JinvT;
-            stress = 0.0; stress(0,0) = 1.0; stress(1,1) = 1.0; // Identity                   
-            stress *= alpha * igr_p;            
-            for (int d = 0; d < dim; d++) { stress(d,d) -= p; }
+            stress = 0.0;            
+            for (int d = 0; d < dim; d++) { stress(d,d) = alpha * igr_p - p; }
             
 
             double visc_coeff = 0.0;
-            if (use_viscosity)
+            if (use_viscosity_igr)
             {
                // Compression-based length scale at the point. The first
                // eigenvector of the symmetric velocity gradient gives the
@@ -330,7 +317,7 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    HypreParMatrix *A = a.ParallelAssemble();
 
    Vector Bigr(fespace.TrueVSize()), Xigr(fespace.TrueVSize());
-   Xigr=0.0;
+   x.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
 
 
@@ -340,9 +327,10 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    HypreSmoother M_prec;
    M_prec.SetType(HypreSmoother::Jacobi);
    CGSolver cg(MPI_COMM_WORLD);
+   cg.iterative_mode = true;
    cg.SetRelTol(1e-12);
-   cg.SetMaxIter(2000);
-   cg.SetPrintLevel(0);
+   cg.SetMaxIter(50);
+   cg.SetPrintLevel(-1);
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(Bigr, Xigr);
