@@ -27,26 +27,125 @@ namespace mfem
 {
 
 namespace hydrodynamics
-{	
-	
-	
-	
+{
 
-class LagrangianIGRHydroOperator : public LagrangianHydroOperator
+
+class QUpdateIGR
+{
+private:
+   const int dim, vdim, NQ, NE, Q1D;
+   const bool use_viscosity, use_vorticity;
+   const double cfl;
+   TimingData *timer;
+   const IntegrationRule &ir;
+   ParFiniteElementSpace &H1, &L2;
+   const Operator *H1R;
+   Vector q_dt_est, q_e, e_vec, q_dx, q_dv;
+   const QuadratureInterpolator *q1,*q2;
+   const ParGridFunction &gamma_gf;
+public:
+   QUpdateIGR(const int d, const int ne, const int q1d,
+           const bool visc, const bool vort,
+           const double cfl, TimingData *t,
+           const ParGridFunction &gamma_gf,
+           const IntegrationRule &ir,
+           ParFiniteElementSpace &h1, ParFiniteElementSpace &l2):
+      dim(d), vdim(h1.GetVDim()),
+      NQ(ir.GetNPoints()), NE(ne), Q1D(q1d),
+      use_viscosity(visc), use_vorticity(vort), cfl(cfl),
+      timer(t), ir(ir), H1(h1), L2(l2),
+      H1R(H1.GetElementRestriction(ElementDofOrdering::LEXICOGRAPHIC)),
+      q_dt_est(NE*NQ),
+      q_e(NE*NQ),
+      e_vec(NQ*NE*vdim),
+      q_dx(NQ*NE*vdim*vdim),
+      q_dv(NQ*NE*vdim*vdim),
+      q1(H1.GetQuadratureInterpolator(ir)),
+      q2(L2.GetQuadratureInterpolator(ir)),
+      gamma_gf(gamma_gf) { }
+
+   void UpdateQuadratureData(const Vector &S, QuadratureData &qdata);
+};
+
+// Given a solutions state (x, v, e), this class performs all necessary
+// computations to evaluate the new slopes (dx_dt, dv_dt, de_dt).
+class LagrangianIGRHydroOperator : public TimeDependentOperator
 {
 protected:
-	mutable ParFiniteElementSpace fespace;
-	bool useIGR = true;
-	mutable bool use_viscosity_igr;
-	mutable CGSolver cg_igr;
-	mutable HypreBoomerAMG amg_prec; //not used
-	double alpha = 0.001;
-	
+   mutable ParFiniteElementSpace fespace;
+   bool useIGR = true;
+   mutable CGSolver cg_igr;
+   mutable HypreBoomerAMG amg_prec; //not used
+   double alpha = 0.001;
 
+   ParFiniteElementSpace &H1, &L2;
+   mutable ParFiniteElementSpace H1c;
+   ParMesh *pmesh;
+   // FE spaces local and global sizes
+   const int H1Vsize;
+   const int H1TVSize;
+   const HYPRE_BigInt H1GTVSize;
+   const int L2Vsize;
+   const int L2TVSize;
+   const HYPRE_BigInt L2GTVSize;
+   Array<int> block_offsets;
+   // Reference to the current mesh configuration.
+   mutable ParGridFunction x_gf;
+   const Array<int> &ess_tdofs;
+   const int dim, NE, l2dofs_cnt, h1dofs_cnt, source_type;
+   const double cfl;
+   const bool use_vorticity, p_assembly;
+   mutable bool use_viscosity;
+   const double cg_rel_tol;
+   const int cg_max_iter;
+   const double ftz_tol;
+   const ParGridFunction &gamma_gf;
+   // Velocity mass matrix and local inverses of the energy mass matrices. These
+   // are constant in time, due to the pointwise mass conservation property.
+   mutable ParBilinearForm Mv;
+   SparseMatrix Mv_spmat_copy;
+   DenseTensor Me, Me_inv;
+   // Integration rule for all assemblies.
+   const IntegrationRule &ir;
+   // Data associated with each quadrature point in the mesh.
+   // These values are recomputed at each time step.
+   const int Q1D;
+   mutable QuadratureData qdata;
+   mutable bool qdata_is_current, forcemat_is_assembled;
+   // Force matrix that combines the kinematic and thermodynamic spaces. It is
+   // assembled in each time step and then it is used to compute the final
+   // right-hand sides for momentum and specific internal energy.
+   mutable MixedBilinearForm Force;
+   // Same as above, but done through partial assembly.
+   ForcePAOperator *ForcePA;
+   // Mass matrices done through partial assembly:
+   // velocity (coupled H1 assembly) and energy (local L2 assemblies).
+   MassPAOperator *VMassPA, *EMassPA;
+   OperatorJacobiSmoother *VMassPA_Jprec;
+   // Linear solver for energy.
+   CGSolver CG_VMass, CG_EMass;
+   mutable TimingData timer;
+   mutable QUpdateIGR *qupdate;
+   mutable Vector X, B, one, rhs, e_rhs;
+   mutable ParGridFunction rhs_c_gf, dvc_gf;
+   mutable Array<int> c_tdofs[3];
+
+   virtual void ComputeMaterialProperties(int nvalues, const double gamma[],
+                                          const double rho[], const double e[],
+                                          double p[], double cs[]) const
+   {
+      for (int v = 0; v < nvalues; v++)
+      {
+         p[v]  = (gamma[v] - 1.0) * rho[v] * e[v];
+         cs[v] = sqrt(gamma[v] * (gamma[v]-1.0) * e[v]);
+      }
+   }
+
+   void UpdateQuadratureData(const Vector &S) const;
+   void AssembleForceMatrix() const;
 
 public:
-    // Constructor: call base constructor first, then initialize your new member
-    LagrangianIGRHydroOperator(const int size,
+   LagrangianIGRHydroOperator(const int size,
                            ParFiniteElementSpace &h1_fes,
                            ParFiniteElementSpace &h1_fescalar,
                            ParFiniteElementSpace &l2_fes,
@@ -58,44 +157,50 @@ public:
                            const double cfl,
                            const bool visc, const bool vort, const bool pa,
                            const double cgt, const int cgiter, double ftz_tol,
-                           const int order_q, bool useIGR_)
-        : LagrangianHydroOperator(size, h1_fes, l2_fes, ess_tdofs, rho0_coeff, rho0_gf, gamma_gf,
-                           source, cfl, visc, vort, pa,
-                           cgt, cgiter, ftz_tol, order_q), 
-						   fespace(h1_fescalar), useIGR(useIGR_), use_viscosity_igr(visc),
-                           cg_igr(MPI_COMM_WORLD), amg_prec()  {
-							   cg_igr.iterative_mode = true;
-                               cg_igr.SetRelTol(1e-12);
-                               cg_igr.SetMaxIter(2000);
-                               cg_igr.SetPrintLevel(0);
-                               amg_prec.SetPrintLevel(0);
-						   }
-
-   void UpdateQuadratureDataIGR(const Vector &S) const;
-   void UpdateQuadratureData(const Vector &S) const override{
-	   if(useIGR){	   UpdateQuadratureDataIGR(S); }
-	   else {LagrangianHydroOperator::UpdateQuadratureData(S);}
-   };
+                           const int order_q, bool useIGR_);
+   ~LagrangianIGRHydroOperator();
+   
+   //New IGR Methods
    void UpdateUseIGR(bool val) { useIGR = val;  };
-   void UpdateUseVisc(bool val) { use_viscosity_igr = val;  };
-	
+   void UpdateUseVisc(bool val) { use_viscosity = val;  };
+   void SetAlpha(double a){ alpha = a; }
    void CalcIGRTerm(ParGridFunction &u, ParGridFunction &x) const;
    
-   void SetAlpha(double a){
-	   alpha = a;
-   }
+   
 
+   // Solve for dx_dt, dv_dt and de_dt.
+   virtual void Mult(const Vector &S, Vector &dS_dt) const;
+
+   virtual MemoryClass GetMemoryClass() const
+   { return Device::GetMemoryClass(); }
+
+   void SolveVelocity(const Vector &S, Vector &dS_dt) const;
+   void SolveEnergy(const Vector &S, const Vector &v, Vector &dS_dt) const;
+   void UpdateMesh(const Vector &S) const;
+
+   // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
+   double GetTimeStepEstimate(const Vector &S) const;
+   void ResetTimeStepEstimate() const;
+   void ResetQuadratureData() const { qdata_is_current = false; }
+
+   // The density values, which are stored only at some quadrature points,
+   // are projected as a ParGridFunction.
+   void ComputeDensity(ParGridFunction &rho) const;
+   double InternalEnergy(const ParGridFunction &e) const;
+   double KineticEnergy(const ParGridFunction &v) const;
+
+   int GetH1VSize() const { return H1.GetVSize(); }
+   const Array<int> &GetBlockOffsets() const { return block_offsets; }
+
+   void PrintTimingData(bool IamRoot, int steps, const bool fom) const;
 };
 
 
 
+} // namespace hydrodynamics
 
 
-
-
-} // namespace hydrodynamicsIGR
-
-} // namespace mfemIGR
+} // namespace mfem
 
 #endif // MFEM_USE_MPI
 

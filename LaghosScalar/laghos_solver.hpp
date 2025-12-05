@@ -113,8 +113,7 @@ protected:
    const Array<int> &ess_tdofs;
    const int dim, NE, l2dofs_cnt, h1dofs_cnt, source_type;
    const double cfl;
-   const bool use_vorticity, p_assembly;
-   mutable bool use_viscosity;
+   const bool use_viscosity, use_vorticity, p_assembly;
    const double cg_rel_tol;
    const int cg_max_iter;
    const double ftz_tol;
@@ -160,7 +159,7 @@ protected:
       }
    }
 
-   virtual void UpdateQuadratureData(const Vector &S) const;
+   void UpdateQuadratureData(const Vector &S) const;
    void AssembleForceMatrix() const;
 
 public:

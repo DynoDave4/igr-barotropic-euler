@@ -127,6 +127,7 @@ int main(int argc, char *argv[])
    double blast_position[] = {0.5, 0.5, 0.5};
    double alpha = 0.1;
    double stallIGR = -0.1;
+   double e_reg = 1.0;
    bool useIGR = true;
 
    bool enable_nc = true;
@@ -154,6 +155,8 @@ int main(int argc, char *argv[])
                   "--no-igr", "Do we add the igr term?");
    args.AddOption(&stallIGR, "-sigr", "--stall-igr",
                   "Do we run without igr for a bit first?");
+   args.AddOption(&e_reg, "-er", "--energy-reg",
+                  "Do we set background energy to something?");
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
                   "ODE solver: 1 - Forward Euler,\n\t"
                   "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6,\n\t"
@@ -556,8 +559,8 @@ int main(int argc, char *argv[])
    if (problem == 1)
    {
       // For the Sedov test, we use a delta function at the origin.
-	  ConstantCoefficient one(1.0);
-	  l2_one.ProjectCoefficient(one);
+	  ConstantCoefficient reg(e_reg);
+	  l2_one.ProjectCoefficient(reg);
 	  DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
                                blast_position[2], blast_energy);
 	  //SumCoefficient ls()
