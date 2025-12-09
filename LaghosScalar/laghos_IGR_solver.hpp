@@ -18,7 +18,7 @@
 #define MFEM_LAGHOS_SOLVER_HPP
 
 #include "mfem.hpp"
-#include "laghos_assembly.hpp"
+#include "laghos_assembly_IGR.hpp"
 #include "laghos_solver.hpp"
 
 #ifdef MFEM_USE_MPI
@@ -34,37 +34,45 @@ class QUpdateIGR
 {
 private:
    const int dim, vdim, NQ, NE, Q1D;
-   const bool use_viscosity, use_vorticity;
+   const bool use_vorticity;
+   mutable bool use_viscosity;
    const double cfl;
    TimingData *timer;
    const IntegrationRule &ir;
-   ParFiniteElementSpace &H1, &L2;
+   ParFiniteElementSpace &H1, &H1_scal, &L2;
    const Operator *H1R;
-   Vector q_dt_est, q_e, e_vec, q_dx, q_dv;
-   const QuadratureInterpolator *q1,*q2;
+   Vector q_dt_est, q_e, e_vec, q_dx, q_dv, q_igr;
+   const QuadratureInterpolator *q1,*q2,*q3;    //q3 is for igr
    const ParGridFunction &gamma_gf;
+   double alpha = 0.001;
 public:
    QUpdateIGR(const int d, const int ne, const int q1d,
            const bool visc, const bool vort,
            const double cfl, TimingData *t,
            const ParGridFunction &gamma_gf,
            const IntegrationRule &ir,
-           ParFiniteElementSpace &h1, ParFiniteElementSpace &l2):
+           ParFiniteElementSpace &h1, ParFiniteElementSpace &h1scal, 
+		   ParFiniteElementSpace &l2, double alpha_):
       dim(d), vdim(h1.GetVDim()),
       NQ(ir.GetNPoints()), NE(ne), Q1D(q1d),
       use_viscosity(visc), use_vorticity(vort), cfl(cfl),
-      timer(t), ir(ir), H1(h1), L2(l2),
+      timer(t), ir(ir), H1(h1), H1_scal(h1scal), L2(l2),
       H1R(H1.GetElementRestriction(ElementDofOrdering::LEXICOGRAPHIC)),
       q_dt_est(NE*NQ),
       q_e(NE*NQ),
+	  q_igr(NE*NQ),   //New IGR vector
       e_vec(NQ*NE*vdim),
       q_dx(NQ*NE*vdim*vdim),
       q_dv(NQ*NE*vdim*vdim),
       q1(H1.GetQuadratureInterpolator(ir)),
       q2(L2.GetQuadratureInterpolator(ir)),
-      gamma_gf(gamma_gf) { }
+	  q3(H1_scal.GetQuadratureInterpolator(ir)),
+      gamma_gf(gamma_gf), alpha(alpha_) { }
+	  
+   void UpdateUseVisc(bool val) { use_viscosity = val;  };
 
    void UpdateQuadratureData(const Vector &S, QuadratureData &qdata);
+   void UpdateQuadratureDataIGR(const Vector &S, QuadratureDataIGR &qdata);
 };
 
 // Given a solutions state (x, v, e), this class performs all necessary
@@ -72,12 +80,15 @@ public:
 class LagrangianIGRHydroOperator : public TimeDependentOperator
 {
 protected:
-   mutable ParFiniteElementSpace fespace;
+   //IGR new data
+   mutable ParFiniteElementSpace H1_scal;
    bool useIGR = true;
    mutable CGSolver cg_igr;
    mutable HypreBoomerAMG amg_prec; //not used
    double alpha = 0.001;
-
+   mutable ParGridFunction igr_gf;
+   
+   //Original Lag
    ParFiniteElementSpace &H1, &L2;
    mutable ParFiniteElementSpace H1c;
    ParMesh *pmesh;
@@ -111,6 +122,7 @@ protected:
    // These values are recomputed at each time step.
    const int Q1D;
    mutable QuadratureData qdata;
+   //mutable QuadratureDataIGR qdataIGR;
    mutable bool qdata_is_current, forcemat_is_assembled;
    // Force matrix that combines the kinematic and thermodynamic spaces. It is
    // assembled in each time step and then it is used to compute the final
@@ -162,7 +174,9 @@ public:
    
    //New IGR Methods
    void UpdateUseIGR(bool val) { useIGR = val;  };
-   void UpdateUseVisc(bool val) { use_viscosity = val;  };
+   void UpdateUseVisc(bool val) { 
+             if (qupdate) { qupdate->UpdateUseVisc(val); }
+             use_viscosity = val;  };
    void SetAlpha(double a){ alpha = a; }
    void CalcIGRTerm(ParGridFunction &u, ParGridFunction &x) const;
    

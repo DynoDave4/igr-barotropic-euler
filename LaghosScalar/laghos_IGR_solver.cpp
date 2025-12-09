@@ -15,7 +15,6 @@
 // testbed platforms, in support of the nation's exascale computing imperative.
 
 #include "general/forall.hpp"
-#include "laghos_solver.hpp"
 #include "laghos_IGR_solver.hpp"
 #include "linalg/kernels.hpp"
 #include <unordered_map>
@@ -66,7 +65,7 @@ class ScalInv : public Coefficient //Takes in two terms
       ScalInv(GridFunction &u_) : u(u_) {}
 
    virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
-   {
+   {  
       return 1.0 / u.GetValue(T, ip);
    }
 };
@@ -104,7 +103,7 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
                                                  const int oq,
 												 bool useIGR) :
    TimeDependentOperator(size),
-   H1(h1), fespace(h1_scal), L2(l2), H1c(H1.GetParMesh(), H1.FEColl(), 1),
+   H1(h1), H1_scal(h1_scal), L2(l2), H1c(H1.GetParMesh(), H1.FEColl(), 1),
    useIGR(useIGR), cg_igr(MPI_COMM_WORLD), amg_prec(),
    pmesh(H1.GetParMesh()),
    H1Vsize(H1.GetVSize()),
@@ -114,7 +113,7 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
    L2TVSize(L2.TrueVSize()),
    L2GTVSize(L2.GlobalTrueVSize()),
    block_offsets(4),
-   x_gf(&H1),
+   x_gf(&H1), igr_gf(&H1_scal),
    ess_tdofs(ess_tdofs),
    dim(pmesh->Dimension()),
    NE(pmesh->GetNE()),
@@ -157,16 +156,16 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
    amg_prec.SetPrintLevel(0);
 	
    block_offsets[0] = 0;
-   block_offsets[1] = block_offsets[0] + H1Vsize;
-   block_offsets[2] = block_offsets[1] + H1Vsize;
-   block_offsets[3] = block_offsets[2] + L2Vsize;
+   block_offsets[1] = block_offsets[0] + H1Vsize; //x
+   block_offsets[2] = block_offsets[1] + H1Vsize; //v
+   block_offsets[3] = block_offsets[2] + L2Vsize; //igr_p
    one.UseDevice(true);
    one = 1.0;
 
    if (p_assembly)
    {
       qupdate = new QUpdateIGR(dim, NE, Q1D, visc, vort, cfl,
-                            &timer, gamma_gf, ir, H1, L2);
+                            &timer, gamma_gf, ir, H1, H1_scal, L2, alpha);
       ForcePA = new ForcePAOperator(qdata, H1, L2, ir);
       VMassPA = new MassPAOperator(H1c, ir, rho0_coeff);
       EMassPA = new MassPAOperator(L2, ir, rho0_coeff);
@@ -771,20 +770,24 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    qdata_is_current = true;
    forcemat_is_assembled = false;
 
-   if (dim > 1 && p_assembly) { return qupdate->UpdateQuadratureData(S, qdata); }
-
    // This code is only for the 1D/FA mode
    LAGHOS_DEVICE_SYNC;
    timer.sw_qdata.Start();
    const int nqp = ir.GetNPoints();
-   ParGridFunction x, v, e, igr;
+   ParGridFunction x, v, e;
    Vector* sptr = const_cast<Vector*>(&S);
    x.MakeRef(&H1, *sptr, 0);
    v.MakeRef(&H1, *sptr, H1.GetVSize());
    e.MakeRef(&L2, *sptr, 2*H1.GetVSize());
-   igr.MakeRef(&fespace, *sptr, 2*H1.GetVSize() + L2.GetVSize());
+   igr_gf.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
    Vector e_vals;
    DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
+   
+   //Calc IGR Pressure
+   if(useIGR){ CalcIGRTerm(v, igr_gf); } else { igr_gf = 0.0; }
+   
+   //Partial Assembly Block
+   if (dim > 1 && p_assembly) { return qupdate->UpdateQuadratureData(S, qdata); }
 
    // Batched computations are needed, because hydrodynamic codes usually
    // involve expensive computations of material properties. Although this
@@ -839,10 +842,6 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
 
       z_id -= nzones_batch;
 	  
-	  //ParFiniteElementSpace fespace(pmesh, H1.FEColl(), 1, Ordering::byNODES);
-	  //ParGridFunction IGRpressure(&fespace);
-	  if(useIGR){ CalcIGRTerm(v, igr); 
-	  } else { igr = 0.0; }
       for (int z = 0; z < nzones_batch; z++)
       {
          ElementTransformation *T = H1.GetElementTransformation(z_id);
@@ -860,7 +859,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
 			const IntegrationPoint &ip = ir.IntPoint(q);
             T->SetIntPoint(&ip);
 			
-			const double igr_p = igr.GetValue(*T, ip);
+			const double igr_p = igr_gf.GetValue(*T, ip);
             stress = 0.0;            
             for (int d = 0; d < dim; d++) { stress(d,d) = alpha * igr_p - p; }
             
@@ -960,7 +959,7 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    int myid = Mpi::WorldRank();
 
    //Some basic densities
-   ParGridFunction Rho(&fespace);
+   ParGridFunction Rho(&H1_scal);
    ComputeDensity(Rho);
    ScalInv RhoInv(Rho);
    double rho_min = Rho.Min();
@@ -972,13 +971,13 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    
    
    //Set up linear form (RHS)
-   ParLinearForm b(&fespace);
+   ParLinearForm b(&H1_scal);
    RHSgScal gCoeffScal(u);
    b.AddDomainIntegrator(new DomainLFIntegrator(gCoeffScal));
    b.Assemble();
 
    //Set up bilinear form (LHS)
-   ParBilinearForm a(&fespace);
+   ParBilinearForm a(&H1_scal);
    a.AddDomainIntegrator(new MassIntegrator(RhoInv)); 
    a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInv));
    
@@ -992,7 +991,7 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    a.Finalize();
    HypreParMatrix *A = a.ParallelAssemble();
 
-   Vector Bigr(fespace.TrueVSize()), Xigr(fespace.TrueVSize());
+   Vector Bigr(H1_scal.TrueVSize()), Xigr(H1_scal.TrueVSize());
    x.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
 
@@ -1099,7 +1098,8 @@ void QUpdateBody(const int NE, const int e,
                  const double* __restrict__ d_grad_v_ext,
                  const double* __restrict__ d_Jac0inv,
                  double *d_dt_est,
-                 double *d_stressJinvT)
+                 double *d_stressJinvT,
+				 const double* __restrict__ d_igr_quads)
 {
    constexpr int DIM2 = DIM*DIM;
    double min_detJ = infinity;
@@ -1116,8 +1116,9 @@ void QUpdateBody(const int NE, const int e,
    const double E = fmax(0.0, d_e_quads[eq]);
    const double P = (gamma - 1.0) * R * E;
    const double S = sqrt(gamma * (gamma - 1.0) * E);
+   const double IGR_P = d_igr_quads[eq];
    for (int k = 0; k < DIM2; k++) { stress[k] = 0.0; }
-   for (int d = 0; d < DIM; d++) { stress[d*DIM+d] = -P; }
+   for (int d = 0; d < DIM; d++) { stress[d*DIM+d] = IGR_P-P; }
    double visc_coeff = 0.0;
    if (use_viscosity)
    {
@@ -1310,7 +1311,8 @@ void QKernel(const int NE, const int NQ,
              const Vector &grad_v_ext,
              const DenseTensor &Jac0inv,
              Vector &dt_est,
-             DenseTensor &stressJinvT)
+             DenseTensor &stressJinvT,
+			 const Vector &igr_quads)
 {
    constexpr int DIM2 = DIM*DIM;
    const auto d_gamma = gamma_gf.Read();
@@ -1322,6 +1324,7 @@ void QKernel(const int NE, const int NQ,
    const auto d_Jac0inv = Read(Jac0inv.GetMemory(), Jac0inv.TotalSize());
    auto d_dt_est = dt_est.ReadWrite();
    auto d_stressJinvT = Write(stressJinvT.GetMemory(), stressJinvT.TotalSize());
+   const auto d_igr_quads = igr_quads.Read();
    if (DIM == 2)
    {
       MFEM_FORALL_2D(e, NE, Q1D, Q1D, 1,
@@ -1345,7 +1348,7 @@ void QKernel(const int NE, const int NQ,
                                 compr_dir, Jpi, ph_dir, stressJiT,
                                 d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
                                 d_e_quads, d_grad_v_ext, d_Jac0inv,
-                                d_dt_est, d_stressJinvT);
+                                d_dt_est, d_stressJinvT, d_igr_quads);
             }
          }
          MFEM_SYNC_THREAD;
@@ -1376,7 +1379,7 @@ void QKernel(const int NE, const int NQ,
                                    compr_dir, Jpi, ph_dir, stressJiT,
                                    d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
                                    d_e_quads, d_grad_v_ext, d_Jac0inv,
-                                   d_dt_est, d_stressJinvT);
+                                   d_dt_est, d_stressJinvT, d_igr_quads);
                }
             }
          }
@@ -1391,9 +1394,10 @@ void QUpdateIGR::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    timer->sw_qdata.Start();
    Vector* S_p = const_cast<Vector*>(&S);
    const int H1_size = H1.GetVSize();
+   const int L2_size = L2.GetVSize();
    const double h1order = (double) H1.GetOrder(0);
    const double infinity = std::numeric_limits<double>::infinity();
-   ParGridFunction x, v, e;
+   ParGridFunction x, v, e, igr_gf;
    x.MakeRef(&H1,*S_p, 0);
    H1R->Mult(x, e_vec);
    q1->SetOutputLayout(QVectorLayout::byVDIM);
@@ -1405,6 +1409,18 @@ void QUpdateIGR::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    q2->SetOutputLayout(QVectorLayout::byVDIM);
    q2->Values(e, q_e);
    q_dt_est = qdata.dt_est;
+   
+   igr_gf.MakeRef(&H1_scal, *S_p, 2*H1_size + L2_size);
+   q3->SetOutputLayout(QVectorLayout::byVDIM);
+   q3->Values(igr_gf, q_igr);
+   
+   //double rho_min = q_igr.Min();
+   //double rho_max = q_igr.Max();
+   //mfem::out << "q_igr in [" << rho_min << ", " << rho_max << "]\n";
+
+   // now safe to scale
+   q_igr *= alpha;
+   
    const int id = (dim << 4) | Q1D;
    typedef void (*fQKernel)(const int NE, const int NQ,
                             const bool use_viscosity,
@@ -1416,7 +1432,8 @@ void QUpdateIGR::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
                             const Vector &Jacobians, const Vector &rho0DetJ0w,
                             const Vector &e_quads, const Vector &grad_v_ext,
                             const DenseTensor &Jac0inv,
-                            Vector &dt_est, DenseTensor &stressJinvT);
+                            Vector &dt_est, DenseTensor &stressJinvT,
+							const Vector &igr_quads);
    static std::unordered_map<int, fQKernel> qupdate =
    {
       // 2D.
@@ -1434,7 +1451,7 @@ void QUpdateIGR::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    qupdate[id](NE, NQ, use_viscosity, use_vorticity, qdata.h0, h1order,
                cfl, infinity, gamma_gf, ir.GetWeights(), q_dx,
                qdata.rho0DetJ0w, q_e, q_dv,
-               qdata.Jac0inv, q_dt_est, qdata.stressJinvT);
+               qdata.Jac0inv, q_dt_est, qdata.stressJinvT, q_igr);
    qdata.dt_est = q_dt_est.Min();
    LAGHOS_DEVICE_SYNC;
    timer->sw_qdata.Stop();
