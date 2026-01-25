@@ -42,6 +42,13 @@
 //    p = 5  --> 2D Riemann problem, config. 12 of doi.org/10.1002/num.10025
 //    p = 6  --> 2D Riemann problem, config.  6 of doi.org/10.1002/num.10025
 //    p = 7  --> 2D Rayleigh-Taylor instability problem.
+//    p = 8  --> Linear C0 shock (not differentiable)
+//    p = 9  --> Gaussian Blast with partial refinement option
+//    p = 10 --> Smooth (tanh) Sod shock tube
+//    p = 11 --> Mach Number / sin init vel
+//    p = 12 --> LeBlanc Shock Tube
+//    p = 13 --> Smooth LeBlanc Tube
+//    p = 14 --> Smooth Shu-Osher shock tube
 //
 // Sample runs: see README.md, section 'Verification of Results'.
 //
@@ -62,11 +69,15 @@
 #include <fstream>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <cmath>
+#include <chrono>
 #include "laghos_solver.hpp"
 #include "laghos_IGR_solver.hpp"
+#include "../mfem/fem/gslib.hpp"
 
 using std::cout;
 using std::endl;
+using namespace std;
 using namespace mfem;
 
 // Choice for the problem setup.
@@ -82,8 +93,40 @@ static long GetMaxRssMB();
 static void display_banner(std::ostream&);
 static void Checks(const int ti, const double norm, int &checks);
 
-int main(int argc, char *argv[])
+double smooth(const Vector &x) {
+	     return exp(-100*(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)));
+      };
+	  
+double Gauss(double x) {return exp(-1*x*x); };
+	  
+class Gaussian : public mfem::Coefficient
 {
+private:
+   double var, h;
+
+public:
+   Gaussian(double var_, double h_)
+      : var(var_), h(h_) {}
+
+   virtual double Eval(mfem::ElementTransformation &T,
+                       const mfem::IntegrationPoint &ip)
+   {
+      mfem::Vector x;
+      T.Transform(ip, x);   // x = physical coordinates
+	  int dim = T.GetSpaceDim();
+	  double out = 1.0;
+	  for(int i=0; i<dim; i++){
+		  out *= h*Gauss((x[i] - 0.5) / sqrt(2*var)) / sqrt(2*3.141592*var);
+	  }
+      return out;
+   }
+};
+
+int main(int argc, char *argv[])
+{  
+   //Start Timer
+   auto start = chrono::high_resolution_clock::now();
+
    // Initialize MPI.
    Mpi::Init();
    int myid = Mpi::WorldRank();
@@ -98,6 +141,7 @@ int main(int argc, char *argv[])
    const char *mesh_file = "default";
    int rs_levels = 2;
    int rp_levels = 0;
+   int rb_levels = 0;
    Array<int> cxyz;
    int order_v = 2;
    int order_e = 1;
@@ -125,10 +169,12 @@ int main(int argc, char *argv[])
    int dev = 0;
    double blast_energy = 0.25;
    double blast_position[] = {0.5, 0.5, 0.5};
-   double alpha = 0.1;
-   double stallIGR = -0.1;
+   double alpha = 0.001;
+   double stallIGR = -0.3;
    double e_reg = 1.0;
    bool useIGR = true;
+   bool corner = false;
+   double variance = 0.1;
 
    bool enable_nc = true;
    bool enable_rebalance = true;
@@ -140,6 +186,8 @@ int main(int argc, char *argv[])
                   "Number of times to refine the mesh uniformly in serial.");
    args.AddOption(&rp_levels, "-rp", "--refine-parallel",
                   "Number of times to refine the mesh uniformly in parallel.");
+   args.AddOption(&rb_levels, "-rb", "--refine-blast",
+                  "Number of times to refine the mesh in serial around the blast.");
    args.AddOption(&cxyz, "-c", "--cartesian-partitioning",
                   "Use Cartesian partitioning.");
    args.AddOption(&problem, "-p", "--problem", "Problem setup to use.");
@@ -151,6 +199,12 @@ int main(int argc, char *argv[])
                   "Order  of the integration rule.");
    args.AddOption(&alpha, "-alpha", "--alpha",
                   "Alpha as the level of IGR");
+   args.AddOption(&blast_energy, "-be", "--blast-energy",
+                  "Amplitude of shock/ sine");
+   args.AddOption(&corner, "-corner", "--corner-blast", "-center",
+                  "--center-blast", "Where does the shockwave start?");
+   args.AddOption(&variance, "-var", "--variance",
+                  "Variance of Gaussian shockwave");
    args.AddOption(&useIGR, "-igr", "--use-igr", "-noigr",
                   "--no-igr", "Do we add the igr term?");
    args.AddOption(&stallIGR, "-sigr", "--stall-igr",
@@ -298,6 +352,43 @@ int main(int argc, char *argv[])
    {
       cout << "Number of zones in the serial mesh: " << mesh_NE << endl;
    }
+   
+   if(problem == 9){
+	   
+      for (int level = 0; level < rb_levels; level++)
+      {
+         Array<int> el_to_refine;
+         el_to_refine.Reserve(mesh->GetNE());
+
+         for (int i = 0; i < mesh->GetNE(); i++)
+         {
+           ElementTransformation *T = mesh->GetElementTransformation(i);
+
+            IntegrationPoint ip; ip.Set2(1.0/2.0, 1.0/2.0);
+            Vector x(dim);
+            T->Transform(ip, x);
+
+            double xx = x(0), yy = x(1);
+
+            bool near_blast = false;
+            {
+               double pad = 1.5*(3-level)*sqrt(variance);
+               near_blast = (abs(xx - 0.5) <= pad && abs(yy - 0.5) <=  pad);
+            }
+
+            if (near_blast) { el_to_refine.Append(i); }
+         }
+
+         if (el_to_refine.Size() > 0)
+         {
+            mesh->GeneralRefinement(el_to_refine); // triangles: conforming refinement
+         }
+      } 
+      mesh->EnsureNodes();
+	   
+   }
+   
+   
 
    // Parallel partitioning of the mesh.
    ParMesh *pmesh = nullptr;
@@ -451,7 +542,7 @@ int main(int argc, char *argv[])
    H1_FECollection H1FEC(order_v, dim);
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
-   ParFiniteElementSpace H1FEScalarSpace(pmesh, &H1FEC, 1, Ordering::byNODES);
+   ParFiniteElementSpace H1FEScalarSpace(pmesh, &H1FEC, 1);
 
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
@@ -535,7 +626,10 @@ int main(int argc, char *argv[])
 
    // Initialize the velocity.
    VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0);
-   v_gf.ProjectCoefficient(v_coeff);
+   real_t Mach = (problem == 11) ? blast_energy : 1.0;
+   ScalarVectorProductCoefficient v_coeff_scaled(Mach, v_coeff);
+
+   v_gf.ProjectCoefficient(v_coeff_scaled);
    for (int i = 0; i < ess_vdofs.Size(); i++)
    {
       v_gf(ess_vdofs[i]) = 0.0;
@@ -556,17 +650,26 @@ int main(int argc, char *argv[])
    ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes), l2_one(&l2_fes);
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
+   
+   
+   if(corner){for(int i=0; i<3; i++){blast_position[i] = 0.0;}} //Else in the center of the inline quad
    if (problem == 1)
-   {
-      // For the Sedov test, we use a delta function at the origin.
+   {  
+      ConstantCoefficient reg(e_reg);
+	  l2_one.ProjectCoefficient(reg);
+      DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
+                               blast_position[2], blast_energy);
+      l2_e.ProjectCoefficient(e_coeff);
+      l2_e += l2_one;
+   }
+   else if(problem == 9){
+	  // For the Sedov test, we use a delta function at the origin.
 	  ConstantCoefficient reg(e_reg);
 	  l2_one.ProjectCoefficient(reg);
-	  DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
-                               blast_position[2], blast_energy);
-	  //SumCoefficient ls()
-      l2_e.ProjectCoefficient(e_coeff);
-	  l2_e += l2_one;
 	  
+	  Gaussian smoothblast(variance, blast_energy);
+      l2_e.ProjectCoefficient(smoothblast);
+	  l2_e += l2_one;
    }
    else
    {
@@ -600,7 +703,13 @@ int main(int argc, char *argv[])
       case 5: visc = true; break;
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
-	   case 8: visc = false; break;
+	  case 8: visc = true; break;
+	  case 9: visc = false; break;
+	  case 10: visc = false; break;
+     case 11: visc = false; break;
+     case 12: visc = false; break;
+     case 13: visc = false; break;
+     case 14: visc = false; break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -706,9 +815,14 @@ int main(int argc, char *argv[])
       if(t < stallIGR){
 		  hydro.UpdateUseVisc(true);
 		  hydro.UpdateUseIGR(false);
-	  } else{
-		  hydro.UpdateUseVisc(visc);
+	  } else if(t < stallIGR + 0.2){
+		  hydro.UpdateUseVisc(true);
 		  hydro.UpdateUseIGR(useIGR);
+	  } else{
+		  hydro.UpdateUseIGR(useIGR);
+		  if(useIGR){
+			  hydro.UpdateUseVisc(false);
+	      }
 	  }
 
       if (t + dt >= t_final)
@@ -807,6 +921,13 @@ int main(int argc, char *argv[])
             {
                hydrodynamics::VisualizeField(vis_rho, vishost, visport, rho_gf,
                                              "Density", Wx, Wy, Ww, Wh);
+			   double rho_min = rho_gf.Min();
+			   if(rho_min < 0.0){
+	               mfem::out << "ERROR: negative density detected\n"
+                   << "  time = " << t << "\n"
+                   << "  rho in [" << rho_min << ", " << " " << "]\n";
+	               MFEM_ABORT("Density became negative");
+                }
             }
             Wx += offx;
             hydrodynamics::VisualizeField(vis_v, vishost, visport,
@@ -882,7 +1003,72 @@ int main(int argc, char *argv[])
          Checks(ti, e_norm, checks);
       }
    }
+
+
+
+   ////////////////////////////////////////////////////////////////////////
+
+   H1_FECollection H1FEClin(1, dim);
+   ParFiniteElementSpace lin_fes(pmesh, &H1FEClin, pmesh->Dimension());
+
+   // 6. Project original solution to linear space
+   GridFunction rho_lin(&lin_fes), v_lin(&lin_fes), e_lin(&lin_fes), igrp_lin(&lin_fes);
+   rho_lin.ProjectGridFunction(rho_gf);
+   v_lin.ProjectGridFunction(v_gf);
+   e_lin.ProjectGridFunction(e_gf);
+   igrp_lin.ProjectGridFunction(igr_gf);
+
+   // 7. Get true DOF values
+   Vector rho_vals, v_vals, e_vals, igrp_vals;
+   rho_lin.GetTrueDofs(rho_vals); // size = number of DOFs (vertices in 1D linear)
+   v_lin.GetTrueDofs(v_vals);
+   e_lin.GetTrueDofs(e_vals);
+   igrp_lin.GetTrueDofs(igrp_vals);
+
+
+   // 8. Print values at mesh vertices in order
+   //cout << "# x u\n";
+   for (int i = 0; i < pmesh->GetNV(); i++) // NV = number of vertices
+   {
+       double xi = pmesh->GetVertex(i)[0]; // x-coordinate of vertex
+       double rhoi = rho_vals[i];            // value at that vertex
+       double vi = v_vals[i];
+       double ei = e_vals[i];
+       double igrpi = igrp_vals[i];
+       //cout << " " << xi << ", " << rhoi << ", " << vi << ", " << ei << ", " << igrpi << ", \n";
+   }
+
+   std::ofstream outfile("../../ExactRiemannProblemSolver/data.csv"); // CSV is easy to read in Julia
+
+   for (int i = 0; i < pmesh->GetNV(); i++) // NV = number of vertices
+   {
+      double xi = pmesh->GetVertex(i)[0]; // x-coordinate of vertex
+      double rhoi = rho_vals[i];            // value at that vertex
+      double vi = v_vals[i];
+      double ei = e_vals[i];
+      double igrpi = igrp_vals[i];    // value at that vertex
+ 
+      // Write to file instead of console
+      outfile << xi << ", " << rhoi << ", " << vi << ", " << ei << ", " << igrpi << ", \n";
+   }
+
+   // Close the file when done
+   outfile.close();
+
+
+
+
+
+   ////////////////////////////////////////////////////////////
+
+
    MFEM_VERIFY(!check || checks == 2, "Check error!");
+   
+   //End timer
+   auto end = chrono::high_resolution_clock::now();
+   std::chrono::duration<double> duration = end - start;
+   double elapsed_seconds = duration.count();
+   cout << "Execution time: " << elapsed_seconds << " seconds." << endl; 
  
    switch (ode_solver_type)
    {
@@ -970,6 +1156,12 @@ double rho0(const Vector &x)
       case 7: return x(1) >= 0.0 ? 2.0 : 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
       case 8: return 1.0;
+	  case 9: return 1.0;
+	  case 10: return 0.5*tanh(100*(0.5-x(0)))+.6;
+     case 11: return 1.0;
+     case 12: return (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4));
+     case 13: return 0.5*tanh(600*(0.5-x(0)))+.6;
+     case 14: return ((x(0) < 0.4) ? 1.6*tanh(300*(0.35-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
    }
 }
 
@@ -988,6 +1180,12 @@ double gamma_func(const Vector &x)
       case 6: return 1.4;
       case 7: return 5.0 / 3.0;
       case 8: return 5.0 / 3.0;
+	  case 9: return 5.0 / 3.0;
+	  case 10: return 1.4;
+     case 11: return 1.4;
+     case 12: return 1.4;
+     case 13: return 1.4;
+     case 14: return 1.4;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1070,6 +1268,12 @@ void v0(const Vector &x, Vector &v)
 	      }
          break;
       }
+	  case 9: v = 0.0; break;
+	  case 10: v = 0.0; break;
+     case 11: v = 0.0; v(0) = sin(2*M_PI*x(0)); break;
+     case 12: v = 0.0; break;
+     case 13: v = 0.0; break;
+     case 14: v = 0.0; v(0) = tanh(std::min(300.0*(0.35-x(0)), 10.0)) + 1.0; break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1140,6 +1344,13 @@ double e0(const Vector &x)
          return (6.0 - rho * x(1)) / (gamma - 1.0) / rho;
       }
       case 8: return 0.0;
+	  case 9: return 0.0; // This case in initialized in main().
+	  //case 10: return 1/(0.5*tanh(20*(0.5-x(0)))+.6);
+	  case 10: return 0.25;
+     case 11: return 0.25;
+     case 12: return 0.25*pow(( (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4))),2.0);
+     case 13: return 0.25*pow(0.5*tanh(600*(0.5-x(0)))+.6,2.0);
+     case 14: return 2.5*( 4.5*tanh(300*(0.35-x(0))) + 5.5 )/((x(0) < 0.4) ? 1.6*tanh(300*(0.35-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }

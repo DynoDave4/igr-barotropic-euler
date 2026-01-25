@@ -861,7 +861,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
 			
 			const double igr_p = igr_gf.GetValue(*T, ip);
             stress = 0.0;            
-            for (int d = 0; d < dim; d++) { stress(d,d) = alpha * igr_p - p; }
+            for (int d = 0; d < dim; d++) { stress(d,d) = igr_p - p; }
             
 
             double visc_coeff = 0.0;
@@ -981,12 +981,6 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    a.AddDomainIntegrator(new MassIntegrator(RhoInv)); 
    a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInv));
    
-
-
-   // 10. Assemble the bilinear form and the corresponding linear system,
-   //     applying any necessary transformations such as: eliminating boundary
-   //     conditions, applying conforming constraints for non-conforming AMR,
-   //     static condensation, etc.
    a.Assemble();
    a.Finalize();
    HypreParMatrix *A = a.ParallelAssemble();
@@ -994,7 +988,7 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    Vector Bigr(H1_scal.TrueVSize()), Xigr(H1_scal.TrueVSize());
    x.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
-
+   Bigr *= -1.0*alpha;
 
    //cout << "Size of linear system: " << A->Height() << endl;
 
@@ -1013,7 +1007,7 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    delete A;
    
    x.SetFromTrueDofs(Xigr);
-   x *= -1.0;
+   
    
 }
 
