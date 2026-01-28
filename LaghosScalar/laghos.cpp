@@ -156,6 +156,7 @@ int main(int argc, char *argv[])
    bool p_assembly = false;
    bool impose_visc = false;
    bool visualization = false;
+   bool write = false;
    int vis_steps = 5;
    bool visit = false;
    bool gfprint = false;
@@ -235,6 +236,9 @@ int main(int argc, char *argv[])
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
+   args.AddOption(&write, "-w", "--write", "-no-w",
+                  "--no-write",
+                  "Enable or disable writing the grid function.");
    args.AddOption(&vis_steps, "-vs", "--visualization-steps",
                   "Visualize every n-th timestep.");
    args.AddOption(&visit, "-visit", "--visit", "-no-visit", "--no-visit",
@@ -951,7 +955,7 @@ int main(int argc, char *argv[])
             visit_dc.Save();
          }
 
-         if (gfprint)
+         if (gfprint && false)
          {
             std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
             mesh_name << basename << "_" << ti << "_mesh";
@@ -1004,59 +1008,102 @@ int main(int argc, char *argv[])
       }
    }
 
+   if (gfprint)
+   {
+      std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
+      mesh_name << basename << "_" << 1 << "_mesh";
+      rho_name  << basename << "_" << 1 << "_rho";
+      v_name << basename << "_" << 1 << "_v";
+      e_name << basename << "_" << 1 << "_e";
+      igr_name  << basename << "_" << 1 << "_igr";
+      std::ofstream mesh_ofs(mesh_name.str().c_str());
+      mesh_ofs.precision(8);
+      pmesh->PrintAsOne(mesh_ofs);
+      mesh_ofs.close();
+         
+
+      ParGridFunction rho_h1(&H1FEScalarSpace), e_h1(&H1FEScalarSpace);
+      rho_h1.ProjectGridFunction(rho_gf);
+      e_h1.ProjectGridFunction(e_gf);
+
+ 
+      std::ofstream rho_ofs(rho_name.str().c_str());
+      rho_ofs.precision(8);
+      rho_h1.SaveAsOne(rho_ofs);
+      rho_ofs.close();
+
+      std::ofstream v_ofs(v_name.str().c_str());
+      v_ofs.precision(8);
+      v_gf.SaveAsOne(v_ofs);
+      v_ofs.close();
+
+      std::ofstream e_ofs(e_name.str().c_str());
+      e_ofs.precision(8);
+      e_h1.SaveAsOne(e_ofs);
+      e_ofs.close();
+
+      std::ofstream igr_ofs(igr_name.str().c_str());
+      igr_ofs.precision(8);
+      igr_gf.SaveAsOne(igr_ofs);
+      igr_ofs.close();
+   }
+
 
 
    ////////////////////////////////////////////////////////////////////////
 
-   H1_FECollection H1FEClin(1, dim);
-   ParFiniteElementSpace lin_fes(pmesh, &H1FEClin, pmesh->Dimension());
+   if(write){
 
-   // 6. Project original solution to linear space
-   GridFunction rho_lin(&lin_fes), v_lin(&lin_fes), e_lin(&lin_fes), igrp_lin(&lin_fes);
-   rho_lin.ProjectGridFunction(rho_gf);
-   v_lin.ProjectGridFunction(v_gf);
-   e_lin.ProjectGridFunction(e_gf);
-   igrp_lin.ProjectGridFunction(igr_gf);
+      cout << "Write \n";
 
-   // 7. Get true DOF values
-   Vector rho_vals, v_vals, e_vals, igrp_vals;
-   rho_lin.GetTrueDofs(rho_vals); // size = number of DOFs (vertices in 1D linear)
-   v_lin.GetTrueDofs(v_vals);
-   e_lin.GetTrueDofs(e_vals);
-   igrp_lin.GetTrueDofs(igrp_vals);
+      H1_FECollection H1FEClin(1, dim);
+      ParFiniteElementSpace lin_fes(pmesh, &H1FEClin, pmesh->Dimension());
+
+      // Project original solution to linear space
+      GridFunction rho_lin(&lin_fes), v_lin(&lin_fes), e_lin(&lin_fes), igrp_lin(&lin_fes);
+      rho_lin.ProjectGridFunction(rho_gf);
+      v_lin.ProjectGridFunction(v_gf);
+      e_lin.ProjectGridFunction(e_gf);
+      igrp_lin.ProjectGridFunction(igr_gf);
+
+      // Get true DOF values
+      Vector rho_vals, v_vals, e_vals, igrp_vals;
+      rho_lin.GetTrueDofs(rho_vals); // size = number of DOFs (vertices in 1D linear)
+      v_lin.GetTrueDofs(v_vals);
+      e_lin.GetTrueDofs(e_vals);
+      igrp_lin.GetTrueDofs(igrp_vals);
 
 
-   // 8. Print values at mesh vertices in order
-   //cout << "# x u\n";
-   for (int i = 0; i < pmesh->GetNV(); i++) // NV = number of vertices
-   {
-       double xi = pmesh->GetVertex(i)[0]; // x-coordinate of vertex
-       double rhoi = rho_vals[i];            // value at that vertex
-       double vi = v_vals[i];
-       double ei = e_vals[i];
-       double igrpi = igrp_vals[i];
-       //cout << " " << xi << ", " << rhoi << ", " << vi << ", " << ei << ", " << igrpi << ", \n";
-   }
+      // Print values at mesh vertices in order
+      //cout << "# x u\n";
+      for (int i = 0; i < pmesh->GetNV(); i++) // NV = number of vertices
+      {
+          double xi = pmesh->GetVertex(i)[0]; // x-coordinate of vertex
+          double rhoi = rho_vals[i];            // value at that vertex
+          double vi = v_vals[i];
+          double ei = e_vals[i];
+          double igrpi = igrp_vals[i];
+          //cout << " " << xi << ", " << rhoi << ", " << vi << ", " << ei << ", " << igrpi << ", \n";
+      }
 
-   std::ofstream outfile("../../ExactRiemannProblemSolver/data.csv"); // CSV is easy to read in Julia
+      std::ofstream outfile("../../ExactRiemannProblemSolver/data.csv"); // CSV is easy to read in Julia
 
-   for (int i = 0; i < pmesh->GetNV(); i++) // NV = number of vertices
-   {
-      double xi = pmesh->GetVertex(i)[0]; // x-coordinate of vertex
-      double rhoi = rho_vals[i];            // value at that vertex
-      double vi = v_vals[i];
-      double ei = e_vals[i];
-      double igrpi = igrp_vals[i];    // value at that vertex
+      for (int i = 0; i < pmesh->GetNV(); i++) // NV = number of vertices
+      {
+         double xi = pmesh->GetVertex(i)[0]; // x-coordinate of vertex
+         double rhoi = rho_vals[i];            // value at that vertex
+         double vi = v_vals[i];
+         double ei = e_vals[i];
+         double igrpi = igrp_vals[i];    // value at that vertex
  
-      // Write to file instead of console
-      outfile << xi << ", " << rhoi << ", " << vi << ", " << ei << ", " << igrpi << ", \n";
+         // Write to file instead of console
+         outfile << xi << ", " << rhoi << ", " << vi << ", " << ei << ", " << igrpi << ", \n";
+      }
+
+      // Close the file when done
+      outfile.close();
+
    }
-
-   // Close the file when done
-   outfile.close();
-
-
-
 
 
    ////////////////////////////////////////////////////////////
@@ -1157,11 +1204,11 @@ double rho0(const Vector &x)
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
       case 8: return 1.0;
 	  case 9: return 1.0;
-	  case 10: return 0.5*tanh(100*(0.5-x(0)))+.6;
+	  case 10: return 0.5*tanh(300*(0.5-x(0)))+.6;
      case 11: return 1.0;
      case 12: return (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4));
-     case 13: return 0.5*tanh(600*(0.5-x(0)))+.6;
-     case 14: return ((x(0) < 0.4) ? 1.6*tanh(300*(0.35-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
+     case 13: return 0.5*tanh(100*(0.5-x(0)))+.6;
+     case 14: return ((x(0) < 0.4) ? 1.6*tanh(300*(0.38-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
    }
 }
 
@@ -1273,7 +1320,12 @@ void v0(const Vector &x, Vector &v)
      case 11: v = 0.0; v(0) = sin(2*M_PI*x(0)); break;
      case 12: v = 0.0; break;
      case 13: v = 0.0; break;
-     case 14: v = 0.0; v(0) = tanh(std::min(300.0*(0.35-x(0)), 10.0)) + 1.0; break;
+     case 14:
+     {   v = 0.0;
+         if (x(0) < 0.2) { v(0) = tanh(200*(x(0)-0.06)) + 1.0; 
+         } else { v(0) = tanh(100.0*(0.35-x(0))) + 1.0; }
+         break;
+     }
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1349,8 +1401,8 @@ double e0(const Vector &x)
 	  case 10: return 0.25;
      case 11: return 0.25;
      case 12: return 0.25*pow(( (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4))),2.0);
-     case 13: return 0.25*pow(0.5*tanh(600*(0.5-x(0)))+.6,2.0);
-     case 14: return 2.5*( 4.5*tanh(300*(0.35-x(0))) + 5.5 )/((x(0) < 0.4) ? 1.6*tanh(300*(0.35-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
+     case 13: return 0.25*pow(0.5*tanh(100*(0.5-x(0)))+.6,2.0);
+     case 14: return 2.5*( 4.5*tanh(300*(0.38-x(0))) + 5.5 )/((x(0) < 0.4) ? 1.6*tanh(300*(0.38-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
