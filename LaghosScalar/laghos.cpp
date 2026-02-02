@@ -82,6 +82,8 @@ using namespace mfem;
 
 // Choice for the problem setup.
 static int problem, dim;
+static double length;
+
 
 // Forward declarations.
 double e0(const Vector &);
@@ -169,6 +171,7 @@ int main(int argc, char *argv[])
    bool gpu_aware_mpi = false;
    int dev = 0;
    double blast_energy = 0.25;
+   length = 1.0;
    double blast_position[] = {0.5, 0.5, 0.5};
    double alpha = 0.001;
    double stallIGR = -0.3;
@@ -202,6 +205,8 @@ int main(int argc, char *argv[])
                   "Alpha as the level of IGR");
    args.AddOption(&blast_energy, "-be", "--blast-energy",
                   "Amplitude of shock/ sine");
+   args.AddOption(&length, "-len", "--mesh-length",
+                  "Mesh Length");
    args.AddOption(&corner, "-corner", "--corner-blast", "-center",
                   "--center-blast", "Where does the shockwave start?");
    args.AddOption(&variance, "-var", "--variance",
@@ -299,9 +304,13 @@ int main(int argc, char *argv[])
    {
       if (dim == 1)
       {
-         mesh = new Mesh(Mesh::MakeCartesian1D(2));
+         mesh = new Mesh(Mesh::MakeCartesian1D(2, length));
          mesh->GetBdrElement(0)->SetAttribute(1);
          mesh->GetBdrElement(1)->SetAttribute(1);
+         if(length != 1.0){
+            for (int i = 0; i < mesh->GetNV(); i++)
+               { mesh->GetVertex(i)[0] -= (length - 1.0) / 2.0; }
+         }
       }
       if (dim == 2)
       {
@@ -351,6 +360,9 @@ int main(int argc, char *argv[])
 
    // Refine the mesh in serial to increase the resolution.
    for (int lev = 0; lev < rs_levels; lev++) { mesh->UniformRefinement(); }
+   if(dim == 1){cout << "Serial dx = " << (length / (mesh->GetNV()-1)) << std::endl;}
+   if(dim == 1){cout << "Serial dx^2 = " << (length / (mesh->GetNV()-1))*(length / (mesh->GetNV()-1)) << std::endl;}
+   if(dim == 2){cout << "Serial dx^2 is about " << length*length / mesh->GetNV() << std::endl;}
    const int mesh_NE = mesh->GetNE();
    if (Mpi::Root())
    {
@@ -1208,7 +1220,7 @@ double rho0(const Vector &x)
      case 11: return 1.0;
      case 12: return (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4));
      case 13: return 0.5*tanh(100*(0.5-x(0)))+.6;
-     case 14: return ((x(0) < 0.4) ? 1.6*tanh(300*(0.38-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
+     case 14: return ((x(0) < 0.4) ? 1.6*tanh(100*(0.32-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
    }
 }
 
@@ -1322,7 +1334,9 @@ void v0(const Vector &x, Vector &v)
      case 13: v = 0.0; break;
      case 14:
      {   v = 0.0;
-         if (x(0) < 0.2) { v(0) = tanh(200*(x(0)-0.06)) + 1.0; 
+         //cout << length << std::endl;
+         if (x(0) < 0.2 + (0.5 - length / 2) + 0.1 * length ) { 
+                  v(0) = tanh(100*(x(0) - (0.5 - length / 2) - 0.06*length) / length ) + 1.0; 
          } else { v(0) = tanh(100.0*(0.35-x(0))) + 1.0; }
          break;
      }
@@ -1402,7 +1416,7 @@ double e0(const Vector &x)
      case 11: return 0.25;
      case 12: return 0.25*pow(( (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4))),2.0);
      case 13: return 0.25*pow(0.5*tanh(100*(0.5-x(0)))+.6,2.0);
-     case 14: return 2.5*( 4.5*tanh(300*(0.38-x(0))) + 5.5 )/((x(0) < 0.4) ? 1.6*tanh(300*(0.38-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
+     case 14: return 2.5*( 4.5*tanh(100*(0.32-x(0))) + 5.5 )/ rho0(x)  ;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
