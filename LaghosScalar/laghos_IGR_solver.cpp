@@ -958,11 +958,10 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
 {
    int myid = Mpi::WorldRank();
 
-   double xx_local = x * x;
-   if (myid == 0)
-   {
-      mfem::out << "xx_local on rank 0: " << xx_local << "\n";
-   }
+
+   double xx_local = 0.0;
+   for(int i=0; i<x.Size()-1; i++){xx_local += x[i]*x[i];}
+   mfem::out << "xx_local on rank 0: " << xx_local << "\n";
 
    //Some basic densities
    ParGridFunction Rho(&L2);
@@ -998,80 +997,10 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    Bigr *= -1.0*alpha;
    //if(t > 1e-2){Xigr = 0.0;}
 
-   
+   double XigrXigr_local = 0.0;
+   for(int i=0; i<Xigr.Size()-1; i++){XigrXigr_local += Xigr[i]*Xigr[i];}
+   mfem::out << "XigrXigr_local on rank 0: " << XigrXigr_local << "\n";
 
-
-   //Tests
-   Vector test(A->Height());
-   A->Mult(Xigr, test);
-
-   //MFEM_VERIFY(test.IsFinite(), "A*x produced NaNs BEFORE CG");
-
-   // 2. Check residual
-   Vector r(H1_scal.TrueVSize()); r = 0.0; test = 0.0;
-   //r = Bigr;
-   A->Mult(Xigr, test);
-   
-   r = Xigr;
-
-   mfem::out << "Sizes: " << std::endl;
-   mfem::out << x.Size() << std::endl;
-   mfem::out << Xigr.Size() << std::endl;
-   mfem::out << H1_scal.TrueVSize() << std::endl;
-   //mfem::out << x.Size() << std::endl;
-   //mfem::out << x.Size() << std::endl;
-
-   MFEM_VERIFY(x.Size() == Xigr.Size(), "CalcIGRTerm: x and Xigr size mismatch");
-   MFEM_VERIFY(r.Size() == Xigr.Size(), "CalcIGRTerm: r and Xigr size mismatch");
-   MFEM_VERIFY(r.Size() == x.Size(), "CalcIGRTerm: r and x size mismatch");
-
-   //MFEM_VERIFY(r.IsFinite(), "Initial residual has NaNs BEFORE CG");
-
-   // Find minimum value of r
-   double r_min_local = r.Min(), r_max_local=  r.Max();
-   double r_min_global, r_max_global;
-   MPI_Reduce(&r_min_local, &r_min_global, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&r_max_local, &r_max_global, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-   if (myid == 0)
-   {
-      mfem::out << "Minimum value of r: " << r_min_global << "\n";
-      mfem::out << "Maximum value of r: " << r_max_global << "\n";
-   }
-   
-   // Check if r contains any NaN or inf locally
-   bool r_has_nonfinite_local = false, r_has_nan_local = false;
-   for (int i = 0; i < r.Size(); i++)
-   {
-      if (!std::isfinite(r[i]))
-      {
-         r_has_nonfinite_local = true;
-      }
-      if (!std::isnan(r[i]))
-      {
-         r_has_nan_local = true;
-      }
-   }
-   bool r_has_nonfinite_global, r_has_nan_global;
-   MPI_Allreduce(&r_has_nonfinite_local, &r_has_nonfinite_global, 1, MPI_C_BOOL, MPI_LOR, MPI_COMM_WORLD);
-   if (myid == 0)
-   {
-      mfem::out << "r has non-finite values: " << (r_has_nonfinite_global ? "YES" : "NO") << "\n";
-      mfem::out << "r has nan values: " << (r_has_nan_global ? "YES" : "NO") << "\n";
-   }
-   
-   // Compute local inner product before MPI reduction
-   double rr_local = r * r;
-   if (myid == 0)
-   {
-      mfem::out << "rr_local on rank 0: " << rr_local << "\n";
-   }
-
-   // 3. Check dot products manually
-   double rr = InnerProduct(MPI_COMM_WORLD, r, r);
-   mfem::out << "rr =  " << rr << "\n";
-   if(!std::isfinite(rr)){A->Print("Matrix.txt");}
-   MPI_Barrier(MPI_COMM_WORLD);
-   MFEM_VERIFY(std::isfinite(rr), "Initial (r,r) is NaN");
 
    // 11. Solve the linear system A X = B.
    HypreSmoother M_prec;
