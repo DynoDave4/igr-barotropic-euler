@@ -958,9 +958,16 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
 {
    int myid = Mpi::WorldRank();
 
+   double xx_local = x * x;
+   if (myid == 0)
+   {
+      mfem::out << "xx_local on rank 0: " << xx_local << "\n";
+   }
+
    //Some basic densities
-   ParGridFunction Rho(&H1_scal);
+   ParGridFunction Rho(&L2);
    ComputeDensity(Rho);
+   Rho.ExchangeFaceNbrData(); //Suggestion, maybe can remove
    ScalInv RhoInv(Rho);
    double rho_min = Rho.Min();
    double rho_max = Rho.Max();
@@ -970,13 +977,13 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    ProductCoefficient AlphaRhoInv(alpha, RhoInv);
    
    
-   //Set up linear form (RHS)
+   //Set up linear form (LHS)
    ParLinearForm b(&H1_scal);
    RHSgScal gCoeffScal(u);
    b.AddDomainIntegrator(new DomainLFIntegrator(gCoeffScal));
    b.Assemble();
 
-   //Set up bilinear form (LHS)
+   //Set up bilinear form (RHS)
    ParBilinearForm a(&H1_scal);
    a.AddDomainIntegrator(new MassIntegrator(RhoInv)); 
    a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInv));
@@ -985,21 +992,97 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    a.Finalize();
    HypreParMatrix *A = a.ParallelAssemble();
 
-   Vector Bigr(H1_scal.TrueVSize()), Xigr(H1_scal.TrueVSize());
+   Vector Bigr(H1_scal.TrueVSize()), Xigr;
    x.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
    Bigr *= -1.0*alpha;
+   //if(t > 1e-2){Xigr = 0.0;}
 
-   //cout << "Size of linear system: " << A->Height() << endl;
+   
+
+
+   //Tests
+   Vector test(A->Height());
+   A->Mult(Xigr, test);
+
+   //MFEM_VERIFY(test.IsFinite(), "A*x produced NaNs BEFORE CG");
+
+   // 2. Check residual
+   Vector r(H1_scal.TrueVSize()); r = 0.0; test = 0.0;
+   //r = Bigr;
+   A->Mult(Xigr, test);
+   
+   r = Xigr;
+
+   mfem::out << "Sizes: " << std::endl;
+   mfem::out << x.Size() << std::endl;
+   mfem::out << Xigr.Size() << std::endl;
+   mfem::out << H1_scal.TrueVSize() << std::endl;
+   //mfem::out << x.Size() << std::endl;
+   //mfem::out << x.Size() << std::endl;
+
+   MFEM_VERIFY(x.Size() == Xigr.Size(), "CalcIGRTerm: x and Xigr size mismatch");
+   MFEM_VERIFY(r.Size() == Xigr.Size(), "CalcIGRTerm: r and Xigr size mismatch");
+   MFEM_VERIFY(r.Size() == x.Size(), "CalcIGRTerm: r and x size mismatch");
+
+   //MFEM_VERIFY(r.IsFinite(), "Initial residual has NaNs BEFORE CG");
+
+   // Find minimum value of r
+   double r_min_local = r.Min(), r_max_local=  r.Max();
+   double r_min_global, r_max_global;
+   MPI_Reduce(&r_min_local, &r_min_global, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&r_max_local, &r_max_global, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   if (myid == 0)
+   {
+      mfem::out << "Minimum value of r: " << r_min_global << "\n";
+      mfem::out << "Maximum value of r: " << r_max_global << "\n";
+   }
+   
+   // Check if r contains any NaN or inf locally
+   bool r_has_nonfinite_local = false, r_has_nan_local = false;
+   for (int i = 0; i < r.Size(); i++)
+   {
+      if (!std::isfinite(r[i]))
+      {
+         r_has_nonfinite_local = true;
+      }
+      if (!std::isnan(r[i]))
+      {
+         r_has_nan_local = true;
+      }
+   }
+   bool r_has_nonfinite_global, r_has_nan_global;
+   MPI_Allreduce(&r_has_nonfinite_local, &r_has_nonfinite_global, 1, MPI_C_BOOL, MPI_LOR, MPI_COMM_WORLD);
+   if (myid == 0)
+   {
+      mfem::out << "r has non-finite values: " << (r_has_nonfinite_global ? "YES" : "NO") << "\n";
+      mfem::out << "r has nan values: " << (r_has_nan_global ? "YES" : "NO") << "\n";
+   }
+   
+   // Compute local inner product before MPI reduction
+   double rr_local = r * r;
+   if (myid == 0)
+   {
+      mfem::out << "rr_local on rank 0: " << rr_local << "\n";
+   }
+
+   // 3. Check dot products manually
+   double rr = InnerProduct(MPI_COMM_WORLD, r, r);
+   mfem::out << "rr =  " << rr << "\n";
+   if(!std::isfinite(rr)){A->Print("Matrix.txt");}
+   MPI_Barrier(MPI_COMM_WORLD);
+   MFEM_VERIFY(std::isfinite(rr), "Initial (r,r) is NaN");
 
    // 11. Solve the linear system A X = B.
    HypreSmoother M_prec;
    M_prec.SetType(HypreSmoother::Jacobi);
    CGSolver cg(MPI_COMM_WORLD);
    cg.iterative_mode = true;
+   cg.SetPrintLevel(3); // -1 for no print
    cg.SetRelTol(1e-12);
-   cg.SetMaxIter(50);
-   cg.SetPrintLevel(-1);
+   cg.SetMaxIter(15);
+   if(t > 1e-2){cg.SetMaxIter(500);}
+   if(t > 9e-3){cg.SetMaxIter(5);}
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(Bigr, Xigr);
