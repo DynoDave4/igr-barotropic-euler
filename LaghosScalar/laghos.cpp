@@ -67,6 +67,10 @@
 // -m data/cube_12_hex.mesh  -pt 322 for 12 / 96 / 768 / 6144 ... tasks.
 
 #include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <iostream>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <cmath>
@@ -74,6 +78,7 @@
 #include "laghos_solver.hpp"
 #include "laghos_IGR_solver.hpp"
 #include "../mfem/fem/gslib.hpp"
+
 
 using std::cout;
 using std::endl;
@@ -162,6 +167,7 @@ int main(int argc, char *argv[])
    int vis_steps = 5;
    bool visit = false;
    bool gfprint = false;
+   bool gfread = false;
    const char *basename = "results/Laghos";
    int partition_type = 0;
    const char *device = "cpu";
@@ -250,6 +256,8 @@ int main(int argc, char *argv[])
                   "Enable or disable VisIt visualization.");
    args.AddOption(&gfprint, "-print", "--print", "-no-print", "--no-print",
                   "Enable or disable result output (files in mfem format).");
+   args.AddOption(&gfread, "-read", "--read", "-no-read", "--no-read",
+                  "Enable or disable reading the grid function.");
    args.AddOption(&basename, "-k", "--outputfilename",
                   "Name of the visit dump files");
    args.AddOption(&partition_type, "-pt", "--partition",
@@ -293,6 +301,9 @@ int main(int argc, char *argv[])
    if (Mpi::Root()) { backend.Print(); }
    backend.SetGPUAwareMPI(gpu_aware_mpi);
 
+   //Read in grid functions
+   GridFunction vBgf, eBgf, rhoBgf;
+
    // On all processors, use the default builtin 1D/2D/3D mesh or read the
    // serial one given on the command line.
    Mesh *mesh;
@@ -304,12 +315,100 @@ int main(int argc, char *argv[])
    {
       if (dim == 1)
       {
-         mesh = new Mesh(Mesh::MakeCartesian1D(2, length));
-         mesh->GetBdrElement(0)->SetAttribute(1);
-         mesh->GetBdrElement(1)->SetAttribute(1);
-         if(length != 1.0){
-            for (int i = 0; i < mesh->GetNV(); i++)
-               { mesh->GetVertex(i)[0] -= (length - 1.0) / 2.0; }
+         if(gfread){
+            std::ifstream file("data.csv");
+            if (!file.is_open()) {
+               MFEM_ABORT("Could not open file!");
+            }
+
+            std::string line;
+
+            // --- Read and ignore header ---
+            std::getline(file, line);
+
+            std::vector<double> xB, rhoB, muB, EB, vB, pB, SigmaB, eB;
+
+            // --- Read data rows ---
+            while (std::getline(file, line)) {
+               std::stringstream ss(line);
+               std::string field;
+
+               std::getline(ss, field, ',');
+               xB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               rhoB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               muB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               EB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               vB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               pB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               SigmaB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               eB.push_back(std::stod(field));
+
+               std::getline(ss, field, ',');
+               SigmaB.push_back(std::stod(field));
+            }
+
+            std::cout << "Read " << xB.size() << " rows\n";
+
+            mesh = new Mesh(Mesh::MakeCartesian1D(xB.size()-1, length));
+            mesh->GetBdrElement(0)->SetAttribute(1);
+            mesh->GetBdrElement(1)->SetAttribute(1);
+            if(length != 1.0){
+               for (int i = 0; i < mesh->GetNV(); i++)
+                  { mesh->GetVertex(i)[0] = xB[i]; }
+            }
+            MFEM_VERIFY(xB.size() == mesh->GetNV(), "xB size must match number of mesh vertices");
+
+            H1_FECollection fec_p1(1, mesh->Dimension());
+            FiniteElementSpace fes_p1(mesh, &fec_p1);
+            MFEM_VERIFY(fes_p1.GetNDofs() == mesh->GetNV(), "H1 P1 DOFs should equal number of vertices");
+
+            GridFunction v_p1(&fes_p1), e_p1(&fes_p1), rho_p1(&fes_p1);
+            MFEM_VERIFY(rhoB.size() == rho_p1.Size(), "rhoB size must match H1 P1 DOFs");
+
+            //Set grid function values
+            for (int i = 0; i < rho_p1.Size(); i++)
+            {
+               v_p1(i) = vB[i];
+               e_p1(i) = eB[i];
+               rho_p1(i) = rhoB[i];
+            }
+
+            //Serial Projection of read values
+            L2_FECollection L2FECser(order_e, dim, BasisType::Positive); //Exactly the same as below
+            H1_FECollection H1FECser(order_v, dim);
+            FiniteElementSpace L2FESpaceSer(mesh, &L2FECser);
+            FiniteElementSpace H1FESpaceSer(mesh, &H1FECser, mesh->Dimension());
+
+            vBgf.SetSpace(&H1FESpaceSer);
+            eBgf.SetSpace(&L2FESpaceSer);
+            rhoBgf.SetSpace(&L2FESpaceSer);
+            
+            rhoBgf.ProjectGridFunction(rho_p1);
+            vBgf.ProjectGridFunction(v_p1);
+            eBgf.ProjectGridFunction(e_p1);
+
+         } else {
+            mesh = new Mesh(Mesh::MakeCartesian1D(2, length));
+            mesh->GetBdrElement(0)->SetAttribute(1);
+            mesh->GetBdrElement(1)->SetAttribute(1);
+            if(length != 1.0){
+               for (int i = 0; i < mesh->GetNV(); i++)
+                  { mesh->GetVertex(i)[0] -= (length - 1.0) / 2.0; }
+            }
          }
       }
       if (dim == 2)
@@ -360,9 +459,9 @@ int main(int argc, char *argv[])
 
    // Refine the mesh in serial to increase the resolution.
    for (int lev = 0; lev < rs_levels; lev++) { mesh->UniformRefinement(); }
-   if(dim == 1){cout << "Serial dx = " << (length / (mesh->GetNV()-1)) << std::endl;}
-   if(dim == 1){cout << "Serial dx^2 = " << (length / (mesh->GetNV()-1))*(length / (mesh->GetNV()-1)) << std::endl;}
-   if(dim == 2){cout << "Serial dx^2 is about " << length*length / mesh->GetNV() << std::endl;}
+   if(dim == 1 && myid == 0){cout << "Serial dx = " << (length / (mesh->GetNV()-1)) << std::endl;}
+   if(dim == 1 && myid == 0){cout << "Serial dx^2 = " << (length / (mesh->GetNV()-1))*(length / (mesh->GetNV()-1)) << std::endl;}
+   if(dim == 2 && myid == 0){cout << "Serial dx^2 is about " << length*length / mesh->GetNV() << std::endl;}
    const int mesh_NE = mesh->GetNE();
    if (Mpi::Root())
    {
@@ -606,7 +705,7 @@ int main(int argc, char *argv[])
       cout << "Number of kinematic (position, velocity) dofs: "
            << glob_size_h1 << endl;
       cout << "Number of specific internal energy dofs: "
-           << glob_size_l2 << endl;
+           << glob_size_l2 << "\n\n" << endl;
    }
 
    // The monolithic BlockVector stores unknown fields as:
@@ -698,6 +797,13 @@ int main(int argc, char *argv[])
 
    igr_gf = 0.0;
    igr_gf.SyncAliasMemory(S);
+
+   //Set initial conditions from read in values
+   if(gfread && dim == 1){
+      rho0_gf = rhoBgf;
+      e_gf = eBgf;
+      v_gf = vBgf;
+   }
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
@@ -853,8 +959,19 @@ int main(int argc, char *argv[])
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
+      //double xx_local = 0.0;
+      //for(int i=0; i<igr_gf.Size()-1; i++){xx_local += igr_gf[i]*igr_gf[i];}
+      //if(Mpi::Root()){mfem::out << "igr_gf dot product local 6: " << xx_local << "\n";}
+      //if(Mpi::Root()){mfem::out << igr_gf[0] << " " << igr_gf[1] << " " << igr_gf[2] << "\n";}
+
       ode_solver->Step(S, t, dt);
       steps++;
+
+      //xx_local = 0.0;
+      //for(int i=0; i<igr_gf.Size()-1; i++){xx_local += igr_gf[i]*igr_gf[i];}
+      //if(Mpi::Root()){mfem::out << "igr_gf dot product local 7: " << xx_local << "\n";}
+      //if(Mpi::Root()){mfem::out << igr_gf[0] << " " << igr_gf[1] << " " << igr_gf[2] << "\n\n\n";}
+
 
       // Adaptive time step control.
       const double dt_est = hydro.GetTimeStepEstimate(S);
@@ -881,6 +998,11 @@ int main(int argc, char *argv[])
       v_gf.SyncAliasMemory(S);
       e_gf.SyncAliasMemory(S);
       igr_gf.SyncAliasMemory(S);
+      
+      //Check dot product
+      //xx_local = 0.0;
+      //for(int i=0; i<igr_gf.Size()-1; i++){xx_local += igr_gf[i]*igr_gf[i];}
+      //if(Mpi::Root()){mfem::out << "igr_gf dot product local 8: " << xx_local << "\n\n\n";}
 
       // Make sure that the mesh corresponds to the new solution state. This is
       // needed, because some time integrators use different S-type vectors
@@ -1216,7 +1338,7 @@ double rho0(const Vector &x)
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
       case 8: return 1.0;
 	  case 9: return 1.0;
-	  case 10: return 0.5*tanh(300*(0.5-x(0)))+.6;
+	  case 10: return 0.5*tanh(200*(0.5-x(0)))+.6;
      case 11: return 1.0;
      case 12: return (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4));
      case 13: return 0.5*tanh(100*(0.5-x(0)))+.6;
