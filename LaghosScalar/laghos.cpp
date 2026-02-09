@@ -303,6 +303,10 @@ int main(int argc, char *argv[])
 
    //Read in grid functions
    GridFunction vBgf, eBgf, rhoBgf;
+   H1_FECollection *H1FECser = nullptr;
+   L2_FECollection *L2FECser = nullptr;
+   FiniteElementSpace *L2FESpaceSer = nullptr;
+   FiniteElementSpace *H1FESpaceSer = nullptr;
 
    // On all processors, use the default builtin 1D/2D/3D mesh or read the
    // serial one given on the command line.
@@ -363,39 +367,54 @@ int main(int argc, char *argv[])
 
             std::cout << "Read " << xB.size() << " rows\n";
 
-            mesh = new Mesh(Mesh::MakeCartesian1D(xB.size()-1, length));
+            int scale = pow(2, rs_levels);
+            int UnscaledSize = xB.size();
+
+            mesh = new Mesh(Mesh::MakeCartesian1D(scale*(xB.size()-1)));
             mesh->GetBdrElement(0)->SetAttribute(1);
             mesh->GetBdrElement(1)->SetAttribute(1);
-            if(length != 1.0){
-               for (int i = 0; i < mesh->GetNV(); i++)
-                  { mesh->GetVertex(i)[0] = xB[i]; }
+
+            //MFEM_VERIFY(xB.size() == mesh->GetNV(), "xB size must match number of mesh vertices");
+
+            
+
+            for (int i = 0; i < UnscaledSize-1; i++)
+            { 
+               for(int j = 0; j < scale; j++){
+                  mesh->GetVertex(scale*i + j)[0] = (scale - j)*xB[i]/scale + j*xB[i+1]/scale;
+               }  
             }
-            MFEM_VERIFY(xB.size() == mesh->GetNV(), "xB size must match number of mesh vertices");
+            mesh->GetVertex(mesh->GetNV()-1)[0] = xB[xB.size()-1]; //Set right boundary values
 
             H1_FECollection fec_p1(1, mesh->Dimension());
             FiniteElementSpace fes_p1(mesh, &fec_p1);
             MFEM_VERIFY(fes_p1.GetNDofs() == mesh->GetNV(), "H1 P1 DOFs should equal number of vertices");
 
             GridFunction v_p1(&fes_p1), e_p1(&fes_p1), rho_p1(&fes_p1);
-            MFEM_VERIFY(rhoB.size() == rho_p1.Size(), "rhoB size must match H1 P1 DOFs");
+            MFEM_VERIFY(scale*rhoB.size()-(scale-1) == rho_p1.Size(), "rhoB size must match H1 P1 DOFs");
 
             //Set grid function values
-            for (int i = 0; i < rho_p1.Size(); i++)
+            for (int i = 0; i < UnscaledSize-1; i++)
             {
-               v_p1(i) = vB[i];
-               e_p1(i) = eB[i];
-               rho_p1(i) = rhoB[i];
+               for(int j = 0; j < scale; j++){
+                  v_p1(scale*i + j) = (scale - j)*vB[i]/scale + j*vB[i+1]/scale;
+                  e_p1(scale*i + j) = (scale - j)*eB[i]/scale + j*eB[i+1]/scale;
+                  rho_p1(scale*i + j) = (scale - j)*rhoB[i]/scale + j*rhoB[i+1]/scale;
+               }
             }
+            v_p1(rho_p1.Size()-1) = vB[UnscaledSize-1]; //Set right boundary values
+            e_p1(rho_p1.Size()-1) = eB[UnscaledSize-1]; 
+            rho_p1(rho_p1.Size()-1) = rhoB[UnscaledSize-1];
 
             //Serial Projection of read values
-            L2_FECollection L2FECser(order_e, dim, BasisType::Positive); //Exactly the same as below
-            H1_FECollection H1FECser(order_v, dim);
-            FiniteElementSpace L2FESpaceSer(mesh, &L2FECser);
-            FiniteElementSpace H1FESpaceSer(mesh, &H1FECser, mesh->Dimension());
+            L2FECser = new L2_FECollection(order_e, dim, BasisType::Positive); //Exactly the same as below
+            H1FECser = new H1_FECollection(order_v, dim);
+            L2FESpaceSer = new FiniteElementSpace(mesh, L2FECser);
+            H1FESpaceSer = new FiniteElementSpace(mesh, H1FECser, mesh->Dimension());
 
-            vBgf.SetSpace(&H1FESpaceSer);
-            eBgf.SetSpace(&L2FESpaceSer);
-            rhoBgf.SetSpace(&L2FESpaceSer);
+            vBgf.SetSpace(H1FESpaceSer);
+            eBgf.SetSpace(L2FESpaceSer);
+            rhoBgf.SetSpace(L2FESpaceSer);
             
             rhoBgf.ProjectGridFunction(rho_p1);
             vBgf.ProjectGridFunction(v_p1);
@@ -458,7 +477,7 @@ int main(int argc, char *argv[])
    }
 
    // Refine the mesh in serial to increase the resolution.
-   for (int lev = 0; lev < rs_levels; lev++) { mesh->UniformRefinement(); }
+   if(!gfread || dim > 1){for (int lev = 0; lev < rs_levels; lev++) { mesh->UniformRefinement(); }}
    if(dim == 1 && myid == 0){cout << "Serial dx = " << (length / (mesh->GetNV()-1)) << std::endl;}
    if(dim == 1 && myid == 0){cout << "Serial dx^2 = " << (length / (mesh->GetNV()-1))*(length / (mesh->GetNV()-1)) << std::endl;}
    if(dim == 2 && myid == 0){cout << "Serial dx^2 is about " << length*length / mesh->GetNV() << std::endl;}
@@ -467,6 +486,12 @@ int main(int argc, char *argv[])
    {
       cout << "Number of zones in the serial mesh: " << mesh_NE << endl;
    }
+
+   
+
+
+
+
    
    if(problem == 9){
 	   
@@ -724,6 +749,7 @@ int main(int argc, char *argv[])
    offset[4] = offset[3] + Vsize_igr;
    BlockVector S(offset, Device::GetMemoryType());
 
+
    // Define GridFunction objects for the position, velocity and specific
    // internal energy. There is no function for the density, as we can always
    // compute the density values given the current mesh position, using the
@@ -798,12 +824,17 @@ int main(int argc, char *argv[])
    igr_gf = 0.0;
    igr_gf.SyncAliasMemory(S);
 
+   cout << "Everything ok so far 1" << endl;
+
    //Set initial conditions from read in values
    if(gfread && dim == 1){
+      //GridFunctionCoefficient vBcoeff(&vBgf), eBcoeff(&eBgf), rhoBcoeff(&rhoBgf);
       rho0_gf = rhoBgf;
-      e_gf = eBgf;
-      v_gf = vBgf;
+      e_gf = eBgf; e_gf.SyncAliasMemory(S);
+      v_gf = vBgf; v_gf.SyncAliasMemory(S);
    }
+
+   cout << "Everything ok so far 2" << endl;
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.

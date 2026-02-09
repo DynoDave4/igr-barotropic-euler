@@ -113,7 +113,7 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
    L2TVSize(L2.TrueVSize()),
    L2GTVSize(L2.GlobalTrueVSize()),
    block_offsets(4),
-   x_gf(&H1), igr_gf(&H1_scal),
+   x_gf(&H1),
    ess_tdofs(ess_tdofs),
    dim(pmesh->Dimension()),
    NE(pmesh->GetNE()),
@@ -306,21 +306,41 @@ void LagrangianIGRHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    // The monolithic BlockVector stores the unknown fields as follows:
    // (Position, Velocity, Specific Internal Energy).
    Vector* sptr = const_cast<Vector*>(&S);
-   ParGridFunction v;
+   ParGridFunction v, igr_gf_loc;
    const int VsizeH1 = H1.GetVSize();
    v.MakeRef(&H1, *sptr, VsizeH1);
+   igr_gf_loc.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
+   
+   //Check Dot product
+   double xx_local = 0.0;
+   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
+   //if(Mpi::Root()){mfem::out << "igr_gf dot product local 4: " << xx_local << "\n";}
+
+
    // Set dx_dt = v (explicit).
-   ParGridFunction dx;
+   ParGridFunction dx, digrp;
    dx.MakeRef(&H1, dS_dt, 0);
    dx = v;
    SolveVelocity(S, dS_dt);
    SolveEnergy(S, v, dS_dt);
+
+   digrp.MakeRef(&H1, dS_dt, 2*H1.GetVSize() + L2.GetVSize());
+   digrp = 0.0;
+
    qdata_is_current = false;
+
+   //Check Dot Product again
+   xx_local = 0.0;
+   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
+   //if(Mpi::Root()){mfem::out << "igr_gf dot product local 5: " << xx_local << "\n";}
+   //if(Mpi::Root()){mfem::out << igr_gf_loc[0] << " " << igr_gf_loc[1] << " " << igr_gf_loc[2] << "\n\n\n";}
 }
 
 void LagrangianIGRHydroOperator::SolveVelocity(const Vector &S,
                                             Vector &dS_dt) const
 {
+   //if(Mpi::Root()){mfem::out << "Solve Velocity"  << "\n";}
+   //if(Mpi::Root()){if(!qdata_is_current){mfem::out << "Update Quad Data here"  << "\n";}}
    UpdateQuadratureData(S);
    AssembleForceMatrix();
    // The monolithic BlockVector stores the unknown fields as follows:
@@ -426,6 +446,8 @@ void LagrangianIGRHydroOperator::SolveVelocity(const Vector &S,
 void LagrangianIGRHydroOperator::SolveEnergy(const Vector &S, const Vector &v,
                                           Vector &dS_dt) const
 {
+   //if(Mpi::Root()){mfem::out << "Solve Energy"  << "\n";}
+   //if(Mpi::Root()){if(!qdata_is_current){mfem::out << "Update Quad Data here"  << "\n";}}
    UpdateQuadratureData(S);
    AssembleForceMatrix();
 
@@ -498,10 +520,20 @@ void LagrangianIGRHydroOperator::UpdateMesh(const Vector &S) const
    Vector* sptr = const_cast<Vector*>(&S);
    x_gf.MakeRef(&H1, *sptr, 0);
    H1.GetParMesh()->NewNodes(x_gf, false);
+
+   ParGridFunction igr_gf_loc;
+   igr_gf_loc.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
+   double xx_local = 0.0;
+   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
+   //if(Mpi::Root()){mfem::out << "igr_gf dot product local 3: " << xx_local << "\n";}
+
+   //H1_scal.GetParMesh()->NewNodes(x_gf, false);
 }
 
 double LagrangianIGRHydroOperator::GetTimeStepEstimate(const Vector &S) const
 {
+   //if(Mpi::Root()){mfem::out << "Get Time Step Estimate"  << "\n";}
+   //if(Mpi::Root()){if(!qdata_is_current){mfem::out << "Update Quad Data here"  << "\n";}}
    UpdateMesh(S);
    UpdateQuadratureData(S);
    double glob_dt_est;
@@ -774,17 +806,29 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    LAGHOS_DEVICE_SYNC;
    timer.sw_qdata.Start();
    const int nqp = ir.GetNPoints();
-   ParGridFunction x, v, e;
+   ParGridFunction x, v, e, igr_gf_loc;
    Vector* sptr = const_cast<Vector*>(&S);
    x.MakeRef(&H1, *sptr, 0);
    v.MakeRef(&H1, *sptr, H1.GetVSize());
    e.MakeRef(&L2, *sptr, 2*H1.GetVSize());
-   igr_gf.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
+   igr_gf_loc.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
    Vector e_vals;
    DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
    
+   //Check Dot product
+   double xx_local = 0.0;
+   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
+   //mfem::out << "igr_gf dot product local: " << xx_local << "\n";
+
    //Calc IGR Pressure
-   if(useIGR){ CalcIGRTerm(v, igr_gf); } else { igr_gf = 0.0; }
+   if(useIGR){ CalcIGRTerm(v, igr_gf_loc); } else { igr_gf_loc = 0.0; }
+   igr_gf_loc.SyncAliasMemory(S);
+
+   xx_local = 0.0;
+   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
+   //mfem::out << "igr_gf dot product local 2: " << xx_local << "\n";
+
+
    
    //Partial Assembly Block
    if (dim > 1 && p_assembly) { return qupdate->UpdateQuadratureData(S, qdata); }
@@ -859,7 +903,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
 			const IntegrationPoint &ip = ir.IntPoint(q);
             T->SetIntPoint(&ip);
 			
-			const double igr_p = igr_gf.GetValue(*T, ip);
+			const double igr_p = igr_gf_loc.GetValue(*T, ip);
             stress = 0.0;            
             for (int d = 0; d < dim; d++) { stress(d,d) = igr_p - p; }
             
@@ -958,15 +1002,9 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
 {
    int myid = Mpi::WorldRank();
 
-
-   double xx_local = 0.0;
-   for(int i=0; i<x.Size()-1; i++){xx_local += x[i]*x[i];}
-   mfem::out << "xx_local on rank 0: " << xx_local << "\n";
-
    //Some basic densities
    ParGridFunction Rho(&L2);
    ComputeDensity(Rho);
-   Rho.ExchangeFaceNbrData(); //Suggestion, maybe can remove
    ScalInv RhoInv(Rho);
    double rho_min = Rho.Min();
    double rho_max = Rho.Max();
@@ -995,23 +1033,15 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    x.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
    Bigr *= -1.0*alpha;
-   //if(t > 1e-2){Xigr = 0.0;}
-
-   double XigrXigr_local = 0.0;
-   for(int i=0; i<Xigr.Size()-1; i++){XigrXigr_local += Xigr[i]*Xigr[i];}
-   mfem::out << "XigrXigr_local on rank 0: " << XigrXigr_local << "\n";
-
 
    // 11. Solve the linear system A X = B.
    HypreSmoother M_prec;
    M_prec.SetType(HypreSmoother::Jacobi);
    CGSolver cg(MPI_COMM_WORLD);
    cg.iterative_mode = true;
-   cg.SetPrintLevel(3); // -1 for no print
+   cg.SetPrintLevel(-1); // -1 for no print
    cg.SetRelTol(1e-12);
    cg.SetMaxIter(15);
-   if(t > 1e-2){cg.SetMaxIter(500);}
-   if(t > 9e-3){cg.SetMaxIter(5);}
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(Bigr, Xigr);
@@ -1019,8 +1049,6 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    delete A;
    
    x.SetFromTrueDofs(Xigr);
-   
-   
 }
 
 /// Trace of a square matrix
