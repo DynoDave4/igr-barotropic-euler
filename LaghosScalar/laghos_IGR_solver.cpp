@@ -899,11 +899,11 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
             const double detJ = Jpr.Det(), rho = rho_b[z*nqp + q],
                          p = p_b[z*nqp + q], sound_speed = cs_b[z*nqp + q];
 						
-			//Set Stress + IGR pressure			
-			const IntegrationPoint &ip = ir.IntPoint(q);
+			   //Set Stress + IGR pressure			
+			   const IntegrationPoint &ip = ir.IntPoint(q);
             T->SetIntPoint(&ip);
 			
-			const double igr_p = igr_gf_loc.GetValue(*T, ip);
+			   const double igr_p = igr_gf_loc.GetValue(*T, ip);
             stress = 0.0;            
             for (int d = 0; d < dim; d++) { stress(d,d) = igr_p - p; }
             
@@ -1014,13 +1014,13 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    ProductCoefficient AlphaRhoInv(alpha, RhoInv);
    
    
-   //Set up linear form (LHS)
+   //Set up linear form (RHS)
    ParLinearForm b(&H1_scal);
    RHSgScal gCoeffScal(u);
    b.AddDomainIntegrator(new DomainLFIntegrator(gCoeffScal));
    b.Assemble();
 
-   //Set up bilinear form (RHS)
+   //Set up bilinear form (LHS)
    ParBilinearForm a(&H1_scal);
    a.AddDomainIntegrator(new MassIntegrator(RhoInv)); 
    a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInv));
@@ -1041,7 +1041,8 @@ void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction
    cg.iterative_mode = true;
    cg.SetPrintLevel(-1); // -1 for no print
    cg.SetRelTol(1e-12);
-   cg.SetMaxIter(15);
+   cg.SetMaxIter(500);
+   if(t < 1e-3){cg.SetMaxIter(500);}
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(Bigr, Xigr);

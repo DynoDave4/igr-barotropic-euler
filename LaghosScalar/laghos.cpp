@@ -824,7 +824,7 @@ int main(int argc, char *argv[])
    igr_gf = 0.0;
    igr_gf.SyncAliasMemory(S);
 
-   cout << "Everything ok so far 1" << endl;
+   //cout << "Everything ok so far 1" << endl;
 
    //Set initial conditions from read in values
    if(gfread && dim == 1){
@@ -834,7 +834,7 @@ int main(int argc, char *argv[])
       v_gf = vBgf; v_gf.SyncAliasMemory(S);
    }
 
-   cout << "Everything ok so far 2" << endl;
+   //cout << "Everything ok so far 2" << endl;
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
@@ -990,19 +990,9 @@ int main(int argc, char *argv[])
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
-      //double xx_local = 0.0;
-      //for(int i=0; i<igr_gf.Size()-1; i++){xx_local += igr_gf[i]*igr_gf[i];}
-      //if(Mpi::Root()){mfem::out << "igr_gf dot product local 6: " << xx_local << "\n";}
-      //if(Mpi::Root()){mfem::out << igr_gf[0] << " " << igr_gf[1] << " " << igr_gf[2] << "\n";}
 
       ode_solver->Step(S, t, dt);
       steps++;
-
-      //xx_local = 0.0;
-      //for(int i=0; i<igr_gf.Size()-1; i++){xx_local += igr_gf[i]*igr_gf[i];}
-      //if(Mpi::Root()){mfem::out << "igr_gf dot product local 7: " << xx_local << "\n";}
-      //if(Mpi::Root()){mfem::out << igr_gf[0] << " " << igr_gf[1] << " " << igr_gf[2] << "\n\n\n";}
-
 
       // Adaptive time step control.
       const double dt_est = hydro.GetTimeStepEstimate(S);
@@ -1030,11 +1020,6 @@ int main(int argc, char *argv[])
       e_gf.SyncAliasMemory(S);
       igr_gf.SyncAliasMemory(S);
       
-      //Check dot product
-      //xx_local = 0.0;
-      //for(int i=0; i<igr_gf.Size()-1; i++){xx_local += igr_gf[i]*igr_gf[i];}
-      //if(Mpi::Root()){mfem::out << "igr_gf dot product local 8: " << xx_local << "\n\n\n";}
-
       // Make sure that the mesh corresponds to the new solution state. This is
       // needed, because some time integrators use different S-type vectors
       // and the oper object might have redirected the mesh positions to those.
