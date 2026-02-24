@@ -306,16 +306,9 @@ void LagrangianIGRHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    // The monolithic BlockVector stores the unknown fields as follows:
    // (Position, Velocity, Specific Internal Energy).
    Vector* sptr = const_cast<Vector*>(&S);
-   ParGridFunction v, igr_gf_loc;
+   ParGridFunction v;
    const int VsizeH1 = H1.GetVSize();
    v.MakeRef(&H1, *sptr, VsizeH1);
-   igr_gf_loc.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
-   
-   //Check Dot product
-   double xx_local = 0.0;
-   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
-   //if(Mpi::Root()){mfem::out << "igr_gf dot product local 4: " << xx_local << "\n";}
-
 
    // Set dx_dt = v (explicit).
    ParGridFunction dx, digrp;
@@ -329,11 +322,6 @@ void LagrangianIGRHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
 
    qdata_is_current = false;
 
-   //Check Dot Product again
-   xx_local = 0.0;
-   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
-   //if(Mpi::Root()){mfem::out << "igr_gf dot product local 5: " << xx_local << "\n";}
-   //if(Mpi::Root()){mfem::out << igr_gf_loc[0] << " " << igr_gf_loc[1] << " " << igr_gf_loc[2] << "\n\n\n";}
 }
 
 void LagrangianIGRHydroOperator::SolveVelocity(const Vector &S,
@@ -520,20 +508,10 @@ void LagrangianIGRHydroOperator::UpdateMesh(const Vector &S) const
    Vector* sptr = const_cast<Vector*>(&S);
    x_gf.MakeRef(&H1, *sptr, 0);
    H1.GetParMesh()->NewNodes(x_gf, false);
-
-   ParGridFunction igr_gf_loc;
-   igr_gf_loc.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
-   double xx_local = 0.0;
-   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
-   //if(Mpi::Root()){mfem::out << "igr_gf dot product local 3: " << xx_local << "\n";}
-
-   //H1_scal.GetParMesh()->NewNodes(x_gf, false);
 }
 
 double LagrangianIGRHydroOperator::GetTimeStepEstimate(const Vector &S) const
 {
-   //if(Mpi::Root()){mfem::out << "Get Time Step Estimate"  << "\n";}
-   //if(Mpi::Root()){if(!qdata_is_current){mfem::out << "Update Quad Data here"  << "\n";}}
    UpdateMesh(S);
    UpdateQuadratureData(S);
    double glob_dt_est;
@@ -806,27 +784,19 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    LAGHOS_DEVICE_SYNC;
    timer.sw_qdata.Start();
    const int nqp = ir.GetNPoints();
-   ParGridFunction x, v, e, igr_gf_loc;
+   ParGridFunction x, v, e, igr_gf;
    Vector* sptr = const_cast<Vector*>(&S);
    x.MakeRef(&H1, *sptr, 0);
    v.MakeRef(&H1, *sptr, H1.GetVSize());
    e.MakeRef(&L2, *sptr, 2*H1.GetVSize());
-   igr_gf_loc.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
+   igr_gf.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
    Vector e_vals;
    DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
    
-   //Check Dot product
-   double xx_local = 0.0;
-   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
-   //mfem::out << "igr_gf dot product local: " << xx_local << "\n";
 
    //Calc IGR Pressure
-   if(useIGR){ CalcIGRTerm(v, igr_gf_loc); } else { igr_gf_loc = 0.0; }
-   igr_gf_loc.SyncAliasMemory(S);
-
-   xx_local = 0.0;
-   for(int i=0; i<igr_gf_loc.Size()-1; i++){xx_local += igr_gf_loc[i]*igr_gf_loc[i];}
-   //mfem::out << "igr_gf dot product local 2: " << xx_local << "\n";
+   //if(useIGR){ CalcIGRTerm(v, igr_gf); } else { igr_gf = 0.0; }
+   igr_gf.SyncAliasMemory(S);
 
 
    
@@ -845,6 +815,120 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    *e_b   = new double[nqp_batch],
    *p_b   = new double[nqp_batch],
    *cs_b  = new double[nqp_batch];
+   
+
+
+
+
+
+
+   //   Here I will recompute the IGR term outside of the CalcIGRTerm function
+   //   This way we will not need to use the inprecise(?) ComputeDensity() function.
+
+   //  We already have an integration rule 
+   //  const IntegrationRule &ir =  IntRules.Get(fespace->GetFE(0)->GetGeomType(),    2*fespace->GetFE(0)->GetOrder());
+
+   QuadratureSpace qs(pmesh, ir.GetOrder());
+   QuadratureFunction rho_q(&qs), rho_q_inv(&qs), rho_q_alpha_inv(&qs);
+   //MFEM_VERIFY(rho_q.Size() == NE*ir.GetOrder(), "Size mismatch!");
+   if(Mpi::Root()){
+      //std::cout << "ir order " << ir.GetOrder() << std::endl;
+      //std::cout << "rho_q size " << rho_q.Size() << std::endl;
+      //std::cout << "NE " << NE << std::endl;
+   }
+   
+
+   //   Here below the calculation for rho_b is done in batches. This cannot be done for our code so 
+   //   I must copy and compute in a single batch
+   if(useIGR){
+
+   for (int z = 0; z < NE; z++)
+   {
+      ElementTransformation *T = H1.GetElementTransformation(z);
+
+      for (int q = 0; q < nqp; q++)
+      {
+         const IntegrationPoint &ip = ir.IntPoint(q);
+         T->SetIntPoint(&ip);
+
+         const double detJ = (T->Jacobian()).Det();
+         
+         const int idx = z * nqp + q;
+         const double rho = qdata.rho0DetJ0w(idx) / detJ / ip.weight;
+         rho_q(idx)         = rho;
+         rho_q_inv(idx)     = 1.0 / rho;
+         rho_q_alpha_inv(idx) = alpha / rho;
+      }
+   } 
+
+   QuadratureFunctionCoefficient RhoInvCoeff(rho_q_inv);
+   QuadratureFunctionCoefficient AlphaRhoInvCoeff(rho_q_alpha_inv); 
+
+   double rho_min = rho_q.Min();
+   double rho_max = rho_q.Max();
+   if(rho_min < 0.0 && Mpi::Root()){
+	   mfem::out << "rho in [" << rho_min << ", " << rho_max << "]\n";
+   }
+   
+   
+   //Set up linear form (RHS)
+   ParLinearForm b(&H1_scal);
+   RHSgScal gCoeffScal(v);
+   b.AddDomainIntegrator(new DomainLFIntegrator(gCoeffScal));
+   b.Assemble();
+
+   //Set up bilinear form (LHS)
+   ParBilinearForm a(&H1_scal);
+   a.AddDomainIntegrator(new MassIntegrator(RhoInvCoeff)); 
+   a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInvCoeff));
+   
+   a.Assemble();
+   a.Finalize();
+   HypreParMatrix *A = a.ParallelAssemble();
+
+   Vector Bigr(H1_scal.TrueVSize()), Xigr(H1_scal.TrueVSize());
+   igr_gf.GetTrueDofs(Xigr);
+   b.ParallelAssemble(Bigr);
+   Bigr *= -1.0*alpha;
+
+   // 11. Solve the linear system A X = B.
+   HypreSmoother M_prec;
+   M_prec.SetType(HypreSmoother::Jacobi);
+   CGSolver cg(MPI_COMM_WORLD);
+   cg.iterative_mode = true;
+   cg.SetPrintLevel(-1); // -1 for no print
+   cg.SetRelTol(1e-12);
+   cg.SetMaxIter(500);
+   if(t < 1e-3){cg.SetMaxIter(500);}
+   if (true) { cg.SetPreconditioner(M_prec); }
+   cg.SetOperator(*A);
+   cg.Mult(Bigr, Xigr);
+   //delete M_prec;
+   delete A;
+   
+   igr_gf.SetFromTrueDofs(Xigr);
+   igr_gf.SyncAliasMemory(S);
+
+   //ParGridFunction igr_gf2(&L2);
+   } else { igr_gf = 0.0; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
    // Jacobians of reference->physical transformations for all quadrature points
    // in the batch.
    DenseTensor *Jpr_b = new DenseTensor[nzones_batch];
@@ -903,7 +987,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
 			   const IntegrationPoint &ip = ir.IntPoint(q);
             T->SetIntPoint(&ip);
 			
-			   const double igr_p = igr_gf_loc.GetValue(*T, ip);
+			   const double igr_p = igr_gf.GetValue(*T, ip);
             stress = 0.0;            
             for (int d = 0; d < dim; d++) { stress(d,d) = igr_p - p; }
             
@@ -925,7 +1009,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
                   vorticity_coeff = (grad_norm > 0.0) ? div_v / grad_norm : 1.0;
                }
 
-               sgrad_v.Symmetrize();
+               sgrad_v.Symmetrize();  // Symmetric version of the Jacobian of v
                double eig_val_data[3], eig_vec_data[9];
                if (dim==1)
                {
@@ -950,6 +1034,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
                const double eps = 1e-12;
                visc_coeff += 0.5 * rho * h * sound_speed * vorticity_coeff *
                              (1.0 - smooth_step_01(mu - 2.0 * eps, eps));
+               if(visc_const > 0){ visc_coeff = visc_const; }
                stress.Add(visc_coeff, sgrad_v);
             }
             // Time step estimate at the point. Here the more relevant length
@@ -987,6 +1072,15 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
          ++z_id;
       }
    }
+   /*
+   ParGridFunction e2(&H1);
+   GridFunctionCoefficient e_coeff(&e);
+   e2.ProjectCoefficient(e_coeff);
+   GridFunctionCoefficient e_coeff2(&e2);
+   e.ProjectCoefficient(e_coeff2);
+   e.SyncAliasMemory(S);
+   */
+
    delete [] gamma_b;
    delete [] rho_b;
    delete [] e_b;

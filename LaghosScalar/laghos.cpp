@@ -168,7 +168,7 @@ int main(int argc, char *argv[])
    bool visit = false;
    bool gfprint = false;
    bool gfread = false;
-   const char *basename = "results/Laghos";
+   const char *basename = "results/";
    int partition_type = 0;
    const char *device = "cpu";
    bool check = false;
@@ -185,6 +185,8 @@ int main(int argc, char *argv[])
    bool useIGR = true;
    bool corner = false;
    double variance = 0.1;
+   double visc_const = -0.1;
+   bool TestPrint = false;
 
    bool enable_nc = true;
    bool enable_rebalance = true;
@@ -219,6 +221,8 @@ int main(int argc, char *argv[])
                   "Variance of Gaussian shockwave");
    args.AddOption(&useIGR, "-igr", "--use-igr", "-noigr",
                   "--no-igr", "Do we add the igr term?");
+   args.AddOption(&TestPrint, "-tp", "--test-print", "-notp",
+                  "--no-test-print", "Do we !print to a folder?");
    args.AddOption(&stallIGR, "-sigr", "--stall-igr",
                   "Do we run without igr for a bit first?");
    args.AddOption(&e_reg, "-er", "--energy-reg",
@@ -244,6 +248,8 @@ int main(int argc, char *argv[])
    args.AddOption(&impose_visc, "-iv", "--impose-viscosity", "-niv",
                   "--no-impose-viscosity",
                   "Use active viscosity terms even for smooth problems.");
+   args.AddOption(&visc_const, "-vc", "--visc-const",
+                  "Sets the viscosity constant");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -865,7 +871,7 @@ int main(int argc, char *argv[])
      case 14: visc = false; break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
-   if (impose_visc) { visc = true; }
+   if (impose_visc || visc_const > 0) { visc = true; }
    bool visc_igr = impose_visc;
 
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
@@ -876,6 +882,7 @@ int main(int argc, char *argv[])
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q, useIGR);
    hydro.SetAlpha(alpha);
+   if(visc_const > 0){ hydro.SetViscConst(visc_const); }
 
    socketstream vis_rho, vis_v, vis_e, vis_igr;
    char vishost[] = "localhost";
@@ -973,9 +980,7 @@ int main(int argc, char *argv[])
 		  hydro.UpdateUseIGR(useIGR);
 	  } else{
 		  hydro.UpdateUseIGR(useIGR);
-		  if(useIGR){
-			  hydro.UpdateUseVisc(false);
-	      }
+		  hydro.UpdateUseVisc(visc);
 	  }
 
       if (t + dt >= t_final)
@@ -1161,11 +1166,26 @@ int main(int argc, char *argv[])
    if (gfprint)
    {
       std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
-      mesh_name << basename << "_" << 1 << "_mesh";
-      rho_name  << basename << "_" << 1 << "_rho";
-      v_name << basename << "_" << 1 << "_v";
-      e_name << basename << "_" << 1 << "_e";
-      igr_name  << basename << "_" << 1 << "_igr";
+      const char *igr_suffix = "", *igr_folder = "WithIGR/";
+      std::string problem_folder = "p" + std::to_string(problem) + "/", visc_suffix = "";
+      if(!useIGR){
+         igr_suffix = "_noigr";
+         igr_folder = "WithoutIGR/";
+      }
+      if(visc){
+        if(visc_const < 0){ 
+          visc_suffix = "_LaghosVisc";
+        } else{
+          visc_suffix =  "_" + std::to_string(visc_const);
+        }
+      }
+      if(TestPrint){ igr_folder = ""; problem_folder = ""; }
+
+      mesh_name << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_mesh";
+      rho_name  << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_rho";
+      v_name << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_v";
+      e_name << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_e";
+      igr_name  << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_igr";
       std::ofstream mesh_ofs(mesh_name.str().c_str());
       mesh_ofs.precision(8);
       pmesh->PrintAsOne(mesh_ofs);
