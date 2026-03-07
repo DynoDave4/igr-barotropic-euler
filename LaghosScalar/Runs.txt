@@ -1,0 +1,585 @@
+
+
+
+Len 10:
+RS 11 -> dx = 0.00244, dof = 4096
+RS 13 -> dx = 0.00061, dof = 32768
+
+Len 1:
+RS 7  -> dx = 0.0039,   dof = 512   <- too coarse
+RS 8  -> dx = 0.0019,   dof = 1024
+RS 9  -> dx =       ,   dof = 2048
+RS 10  -> dx = 0.00049, dof = 4096
+RS 11  -> dx =      ,   dof = 8192
+RS 12  -> dx =       ,  dof = 16384
+RS 13  -> dx = 0.00006, dof = 32768 <- max dofs that is reasonable?
+
+
+
+______________________________________________________
+IGR Runs
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 16e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 16e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 16e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-5;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-5;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125e-7;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-6;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-5;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125e-7;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-6;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125e-7;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-6;
+______________________________________________________
+
+No IGR runs:
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 16e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4 -noigr;  BROKEN
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4 -noigr;  BROKEN
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 16e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-5 -noigr;
+
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 16e-4 -noigr; 
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-5 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-5 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125e-7 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-6 -noigr;
+
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-4 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-5 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125e-7 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-6 -noigr;
+
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 25e-6 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125e-7 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-6 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-6 -noigr;
+
+
+______________________________________________________
+
+Different Alpha: 16e-6
+
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 16e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 8e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 1e-4;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 16e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 8e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 1e-4;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 16e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 8e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 1e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 5e-5;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 25e-6;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 4e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 2e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 1e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 5e-5;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 25e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 125e-7;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 6e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 3e-6;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 1e-4;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 5e-5;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 25e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 125e-7;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 6e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 3e-6;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 25e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 125e-7;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 6e-6;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 16e-6 -vis -print -len 1.0 -vc 3e-6;
+
+
+
+______________________________________________________
+
+New Viscosity -vt 3:
+
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 8e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3;
+
+______________________________________________________
+
+3rd order vt 3:
+
+
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3 -ok 3 -ot 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3 -ok 3 -ot 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3 -ok 3 -ot 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3 -ok 3 -ot 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1e-1 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3 -ok 3 -ot 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2.5e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1.25e-2 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 6e-3 -vt 3 -ok 3 -ot 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 13 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 3e-3 -vt 3 -ok 3 -ot 3;
+
+
+
+______________________________________________________
+______________________________________________________
+
+***Change -vt 3 to have factor h -> h^2 ***
+______________________________________________________
+______________________________________________________
+
+(2,1) order vt 3:
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+
+
+
+
+______________________________________________________
+
+Longer Time:
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 125 -vt 3;
+
+
+
+
+______________________________________________________
+
+NOIGR vt 3 runs:
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.05 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+
+
+
+
+
+
+______________________________________________________
+
+Later Time noigr:
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 4000 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 2000 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 1000 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 500 -vt 3 -noigr;
+
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+mpirun --oversubscribe -np 24 ./laghos -p 14 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -len 1.0 -vc 250 -vt 3 -noigr;
+
+
+
+______________________________________________________
+
+p11 results:
+
+
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 13 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 8 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 9 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 10 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 11 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 12 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 13 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 8 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 9 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 10 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 11 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 12 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 13 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 1000 -vt 3 -be 1.0;
+
+
+
+
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 24 ./laghos -p 11 -rs 13 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 13 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 13 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 100 -vt 3 -be 1.0;
+
+
+
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 13 -dim 1 -tf 0.1 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 13 -dim 1 -tf 0.2 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 11 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 12 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 13 -dim 1 -tf 0.3 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.4 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.5 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 8 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 9 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+mpirun --oversubscribe -np 16 ./laghos -p 11 -rs 10 -dim 1 -tf 0.6 -alpha 4e-6 -vis -print -vc 10 -vt 3 -be 1.0;
+
+
+
+
+
+
+
+
+______________________________________________________
+
+Current Runs:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+______________________________________________________
+
+Later Runs:
+
+
+
+
+
+
+
+
+
+

@@ -185,7 +185,8 @@ int main(int argc, char *argv[])
    bool useIGR = true;
    bool corner = false;
    double variance = 0.1;
-   double visc_const = -0.1;
+   double visc_const = 250;  // Viscosity constant i.e. A
+   int visc_type = 3;  // 1 is Laghos Artificial Visc, 2 is const A, 3 is dx(A ||u|| + c)
    bool TestPrint = false;
 
    bool enable_nc = true;
@@ -249,7 +250,9 @@ int main(int argc, char *argv[])
                   "--no-impose-viscosity",
                   "Use active viscosity terms even for smooth problems.");
    args.AddOption(&visc_const, "-vc", "--visc-const",
-                  "Sets the viscosity constant");
+                  "Sets the viscosity constant.");
+   args.AddOption(&visc_type, "-vt", "--visc-type",
+                  "Sets the way we add viscosity.");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -883,6 +886,7 @@ int main(int argc, char *argv[])
                                                 order_q, useIGR);
    hydro.SetAlpha(alpha);
    if(visc_const > 0){ hydro.SetViscConst(visc_const); }
+   hydro.SetViscType(visc_type);
 
    socketstream vis_rho, vis_v, vis_e, vis_igr;
    char vishost[] = "localhost";

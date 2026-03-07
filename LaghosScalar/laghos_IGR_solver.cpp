@@ -898,8 +898,8 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    cg.iterative_mode = true;
    cg.SetPrintLevel(-1); // -1 for no print
    cg.SetRelTol(1e-12);
-   cg.SetMaxIter(500);
    if(t < 1e-3){cg.SetMaxIter(500);}
+   cg.SetMaxIter(10);
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(Bigr, Xigr);
@@ -1034,8 +1034,22 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
                const double eps = 1e-12;
                visc_coeff += 0.5 * rho * h * sound_speed * vorticity_coeff *
                              (1.0 - smooth_step_01(mu - 2.0 * eps, eps));
-               if(visc_const > 0){ visc_coeff = visc_const; }
-               stress.Add(visc_coeff, sgrad_v);
+               
+               if(visc_type == 1){stress.Add(visc_coeff, sgrad_v);}
+               if(visc_type == 2 && visc_const > 0){ 
+                  visc_coeff = visc_const;
+                  stress.Add(visc_coeff, sgrad_v); 
+               }
+               if(visc_type == 3 && visc_const > 0){ 
+                  Vector vel(dim);
+                  v.GetVectorValue(*T, ip, vel);
+                  visc_coeff = h*h*visc_const*(vel.Norml2() + sound_speed); 
+                  if(t < 0.0001 && q == 0 && Mpi::Root()){
+                     //mfem::out << "vel norm is " << vel.Norml2() << ", sound speed is " << sound_speed << "]\n";
+                  }
+                  stress.Add(visc_coeff, sgrad_v);
+               }
+               
             }
             // Time step estimate at the point. Here the more relevant length
             // scale is related to the actual mesh deformation; we use the min
