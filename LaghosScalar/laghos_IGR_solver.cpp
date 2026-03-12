@@ -1043,7 +1043,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
                if(visc_type == 3 && visc_const > 0){ 
                   Vector vel(dim);
                   v.GetVectorValue(*T, ip, vel);
-                  visc_coeff = h*h*visc_const*(vel.Norml2() + sound_speed); 
+                  visc_coeff = rho*h*h*visc_const*(vel.Norml2() + sound_speed); 
                   if(t < 0.0001 && q == 0 && Mpi::Root()){
                      //mfem::out << "vel norm is " << vel.Norml2() << ", sound speed is " << sound_speed << "]\n";
                   }

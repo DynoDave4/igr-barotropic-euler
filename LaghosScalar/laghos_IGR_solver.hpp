@@ -72,6 +72,7 @@ public:
    void UpdateUseVisc(bool val) { use_viscosity = val;  };
 
    void UpdateQuadratureData(const Vector &S, QuadratureData &qdata);
+   void UpdateQuadratureDataIGR(const Vector &S, QuadratureDataIGR &qdata);
 };
 
 // Given a solutions state (x, v, e), this class performs all necessary
@@ -85,12 +86,10 @@ protected:
    mutable CGSolver cg_igr;
    mutable HypreBoomerAMG amg_prec; //not used
    double alpha = 0.001;
-   mutable ParGridFunction igr_gf;
-   int ti = 0;
-   double visc_const = -0.1;
-   int visc_type = 1;
+   double visc_const = 0.0001;
+   int visc_type = 3;
    
-   //Original Laghos
+   //Original Lag
    ParFiniteElementSpace &H1, &L2;
    mutable ParFiniteElementSpace H1c;
    ParMesh *pmesh;
@@ -124,6 +123,7 @@ protected:
    // These values are recomputed at each time step.
    const int Q1D;
    mutable QuadratureData qdata;
+   //mutable QuadratureDataIGR qdataIGR;
    mutable bool qdata_is_current, forcemat_is_assembled;
    // Force matrix that combines the kinematic and thermodynamic spaces. It is
    // assembled in each time step and then it is used to compute the final
@@ -178,10 +178,9 @@ public:
    void UpdateUseVisc(bool val) { 
              if (qupdate) { qupdate->UpdateUseVisc(val); }
              use_viscosity = val;  };
-   void SetViscConst(double v){ visc_const = v; }
-   void SetViscType(int v){ visc_type = v; }          
    void SetAlpha(double a){ alpha = a; }
-   void IncrementTI(){ ti++; }
+   void SetViscConst(double vc){ visc_const = vc; }
+   void SetViscType(int vt){ visc_type = vt; }
    void CalcIGRTerm(ParGridFunction &u, ParGridFunction &x) const;
    
    

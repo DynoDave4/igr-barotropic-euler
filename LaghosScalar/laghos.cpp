@@ -875,6 +875,7 @@ int main(int argc, char *argv[])
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc || visc_const > 0) { visc = true; }
+   bool visc_igr = impose_visc;
 
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
                                                 H1FESpace, H1FEScalarSpace, L2FESpace, ess_tdofs,
@@ -1170,10 +1171,12 @@ int main(int argc, char *argv[])
    {
       std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
       const char *igr_suffix = "", *igr_folder = "WithIGR/";
-      std::string problem_folder = "p" + std::to_string(problem) + "/", visc_suffix = "";
+      std::string problem_folder = "p" + std::to_string(problem) + "/", visc_suffix = "", alpha_folder = "";
       if(!useIGR){
          igr_suffix = "_noigr";
          igr_folder = "WithoutIGR/";
+      } else {
+         alpha_folder = "alpha=" + std::to_string(alpha*1000000) + "e-6/";
       }
       if(visc){
         if(visc_const < 0){ 
@@ -1183,12 +1186,13 @@ int main(int argc, char *argv[])
         }
       }
       if(TestPrint){ igr_folder = ""; problem_folder = ""; }
-
-      mesh_name << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_mesh";
-      rho_name  << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_rho";
-      v_name << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_v";
-      e_name << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_e";
-      igr_name  << basename << igr_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_igr";
+      
+      std::cout << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "\n";
+      mesh_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_mesh";
+      rho_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_rho";
+      v_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_v";
+      e_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_e";
+      igr_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final<< igr_suffix<< visc_suffix<< "_igr";
       std::ofstream mesh_ofs(mesh_name.str().c_str());
       mesh_ofs.precision(8);
       pmesh->PrintAsOne(mesh_ofs);
