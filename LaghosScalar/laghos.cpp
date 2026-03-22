@@ -185,7 +185,7 @@ int main(int argc, char *argv[])
    bool useIGR = true;
    bool corner = false;
    double variance = 0.1;
-   double visc_const = 250;  // Viscosity constant i.e. A
+   double visc_const = 250.1234;  // Viscosity constant i.e. A
    int visc_type = 3;  // 1 is Laghos Artificial Visc, 2 is const A, 3 is dx(A ||u|| + c)
    bool TestPrint = false;
 
@@ -497,11 +497,6 @@ int main(int argc, char *argv[])
    }
 
    
-
-
-
-
-   
    if(problem == 9){
 	   
       for (int level = 0; level < rb_levels; level++)
@@ -748,7 +743,6 @@ int main(int argc, char *argv[])
    // - 2 -> specific internal energy
    const int Vsize_l2 = L2FESpace.GetVSize();
    const int Vsize_h1 = H1FESpace.GetVSize();
-   const int Vsize_h12 = H1FESpace.GetVSize();
    const int Vsize_igr = H1FEScalarSpace.GetVSize();
    Array<int> offset(5);
    offset[0] = 0;
@@ -875,7 +869,6 @@ int main(int argc, char *argv[])
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc || visc_const > 0) { visc = true; }
-   bool visc_igr = impose_visc;
 
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
                                                 H1FESpace, H1FEScalarSpace, L2FESpace, ess_tdofs,
@@ -1186,13 +1179,17 @@ int main(int argc, char *argv[])
         }
       }
       if(TestPrint){ igr_folder = ""; problem_folder = ""; }
+	  
+	  std::ostringstream oss;
+      oss << std::setprecision(3) << t_final * 1000;
+      std::string t_str = oss.str();
       
-      std::cout << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "\n";
-      mesh_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_mesh";
-      rho_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_rho";
-      v_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_v";
-      e_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final << igr_suffix << visc_suffix << "_e";
-      igr_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << ode_solver_type << "_" << t_final<< igr_suffix<< visc_suffix<< "_igr";
+      std::cout << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << "_" << t_str << igr_suffix << visc_suffix << "\n";
+      mesh_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << "_" << t_str << igr_suffix << visc_suffix << "_mesh";
+      rho_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << "_" << t_str << igr_suffix << visc_suffix << "_rho";
+      v_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << "_" << t_str << igr_suffix << visc_suffix << "_v";
+      e_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << "_" << t_str << igr_suffix << visc_suffix << "_e";
+      igr_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << "_" << t_str << igr_suffix<< visc_suffix<< "_igr";
       std::ofstream mesh_ofs(mesh_name.str().c_str());
       mesh_ofs.precision(8);
       pmesh->PrintAsOne(mesh_ofs);

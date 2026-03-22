@@ -317,7 +317,7 @@ void LagrangianIGRHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    SolveVelocity(S, dS_dt);
    SolveEnergy(S, v, dS_dt);
 
-   digrp.MakeRef(&H1, dS_dt, 2*H1.GetVSize() + L2.GetVSize());
+   digrp.MakeRef(&H1_scal, dS_dt, 2*H1.GetVSize() + L2.GetVSize());
    digrp = 0.0;
 
    qdata_is_current = false;
