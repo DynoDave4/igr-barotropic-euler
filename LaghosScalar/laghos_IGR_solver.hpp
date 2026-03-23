@@ -86,6 +86,8 @@ protected:
    mutable CGSolver cg_igr;
    mutable HypreBoomerAMG amg_prec; //not used
    double alpha = 0.001;
+   int at = 1;
+   mutable ParGridFunction alpha_gf;
    double visc_const = 0.0001;
    int visc_type = 3;
    
@@ -179,9 +181,9 @@ public:
              if (qupdate) { qupdate->UpdateUseVisc(val); }
              use_viscosity = val;  };
    void SetAlpha(double a){ alpha = a; }
+   void SetAlphaType(int a){ at = a; }
    void SetViscConst(double vc){ visc_const = vc; }
    void SetViscType(int vt){ visc_type = vt; }
-   void CalcIGRTerm(ParGridFunction &u, ParGridFunction &x) const;
    
    
 

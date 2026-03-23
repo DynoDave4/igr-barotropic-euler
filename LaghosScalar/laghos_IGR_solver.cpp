@@ -57,6 +57,57 @@ class RHSgScal : public Coefficient //Takes in one term
    }
 };
 
+class Alpha2 : public Coefficient
+{
+private:
+   GridFunction &x_gf;
+   double alpha;
+
+public:
+   Alpha2(GridFunction &x_, double alpha_)
+      : x_gf(x_), alpha(alpha_) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      Vector x;
+      x_gf.GetVectorValue(T, ip, x);
+
+      double r2 = 0.0;
+      for (int d = 0; d < x.Size(); d++)
+      {
+         r2 += x(d) * x(d);
+      }
+
+      return alpha * (1+10*pow(5,-100*(x(0)-0.5)*(x(0)-0.5)));
+   }
+};
+
+class Alpha3 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha3(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      // Set integration point (needed for Jacobian)
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const double detJ = J.Det();
+      const int dim = J.Height(); // spatial dimension
+
+      // Compute h^2 ~ (volume)^(2/d)
+      const double h2 = pow(fabs(detJ), 2.0 / dim);
+
+      return alpha * h2;
+   }
+};
+
 class ScalInv : public Coefficient //Takes in two terms
 {
    private:
@@ -113,7 +164,7 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
    L2TVSize(L2.TrueVSize()),
    L2GTVSize(L2.GlobalTrueVSize()),
    block_offsets(4),
-   x_gf(&H1),
+   x_gf(&H1), alpha_gf(&H1_scal),
    ess_tdofs(ess_tdofs),
    dim(pmesh->Dimension()),
    NE(pmesh->GetNE()),
@@ -795,8 +846,6 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    
 
    //Calc IGR Pressure
-   //if(useIGR){ CalcIGRTerm(v, igr_gf); } else { igr_gf = 0.0; }
-   igr_gf.SyncAliasMemory(S);
 
 
    
@@ -829,7 +878,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    //  const IntegrationRule &ir =  IntRules.Get(fespace->GetFE(0)->GetGeomType(),    2*fespace->GetFE(0)->GetOrder());
 
    QuadratureSpace qs(pmesh, ir.GetOrder());
-   QuadratureFunction rho_q(&qs), rho_q_inv(&qs), rho_q_alpha_inv(&qs);
+   QuadratureFunction rho_q(&qs), rho_q_inv(&qs), rho_q_alpha_inv(&qs), alpha_q(&qs);
    //MFEM_VERIFY(rho_q.Size() == NE*ir.GetOrder(), "Size mismatch!");
    if(Mpi::Root()){
       //std::cout << "ir order " << ir.GetOrder() << std::endl;
@@ -840,7 +889,35 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
 
    //   Here below the calculation for rho_b is done in batches. This cannot be done for our code so 
    //   I must copy and compute in a single batch
-   if(useIGR){
+if(useIGR){
+
+   //Set up linear form (RHS)
+   ParLinearForm b(&H1_scal);
+   RHSgScal gCoeffScal(v);
+
+   if(at == 1){
+      ConstantCoefficient alpha_const(alpha);
+      alpha_gf.ProjectCoefficient(alpha_const);
+      ProductCoefficient alpha_g(alpha_const, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+      b.Assemble(); }
+   if(at == 2){
+      Alpha2 alpha2_coeff(x, alpha);
+      alpha_gf.ProjectCoefficient(alpha2_coeff);
+      ProductCoefficient alpha_g(alpha2_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+      b.Assemble(); }
+   if(at == 3){
+      Alpha3 alpha3_coeff(alpha);
+      alpha_gf.ProjectCoefficient(alpha3_coeff); 
+      ProductCoefficient alpha_g(alpha3_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+      b.Assemble();}
+   
+   alpha_q.ProjectGridFunction(alpha_gf);
+
+   
+   
 
    for (int z = 0; z < NE; z++)
    {
@@ -857,9 +934,15 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
          const double rho = qdata.rho0DetJ0w(idx) / detJ / ip.weight;
          rho_q(idx)         = rho;
          rho_q_inv(idx)     = 1.0 / rho;
-         rho_q_alpha_inv(idx) = alpha / rho;
+
+         rho_q_alpha_inv(idx) = alpha_q(idx) / rho;
       }
    } 
+
+   //mfem::out << "alpha_q: [" << alpha_q.Min() << ", " << alpha_q.Max() << "]\n";
+   //mfem::out << "rho_q: [" << rho_q.Min() << ", " << rho_q.Max() << "]\n";
+   //mfem::out << "rho_q_inv: [" << rho_q_inv.Min() << ", " << rho_q_inv.Max() << "]\n";
+   //mfem::out << "rho_q_alpha_inv: [" << rho_q_alpha_inv.Min() << ", " << rho_q_alpha_inv.Max() << "]\n";
 
    QuadratureFunctionCoefficient RhoInvCoeff(rho_q_inv);
    QuadratureFunctionCoefficient AlphaRhoInvCoeff(rho_q_alpha_inv); 
@@ -870,12 +953,6 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
 	   mfem::out << "rho in [" << rho_min << ", " << rho_max << "]\n";
    }
    
-   
-   //Set up linear form (RHS)
-   ParLinearForm b(&H1_scal);
-   RHSgScal gCoeffScal(v);
-   b.AddDomainIntegrator(new DomainLFIntegrator(gCoeffScal));
-   b.Assemble();
 
    //Set up bilinear form (LHS)
    ParBilinearForm a(&H1_scal);
@@ -889,7 +966,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    Vector Bigr(H1_scal.TrueVSize()), Xigr(H1_scal.TrueVSize());
    igr_gf.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
-   Bigr *= -1.0*alpha;
+   Bigr *= -1.0;
 
    // 11. Solve the linear system A X = B.
    HypreSmoother M_prec;
@@ -898,8 +975,8 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    cg.iterative_mode = true;
    cg.SetPrintLevel(-1); // -1 for no print
    cg.SetRelTol(1e-12);
+   cg.SetMaxIter(500);
    if(t < 1e-3){cg.SetMaxIter(500);}
-   cg.SetMaxIter(10);
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(Bigr, Xigr);
@@ -1104,60 +1181,6 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    LAGHOS_DEVICE_SYNC;
    timer.sw_qdata.Stop();
    timer.quad_tstep += NE;
-}
-
-void LagrangianIGRHydroOperator::CalcIGRTerm(ParGridFunction &u, ParGridFunction &x) const
-{
-   int myid = Mpi::WorldRank();
-
-   //Some basic densities
-   ParGridFunction Rho(&L2);
-   ComputeDensity(Rho);
-   ScalInv RhoInv(Rho);
-   double rho_min = Rho.Min();
-   double rho_max = Rho.Max();
-   if(rho_min < 0.0 && myid == 0){
-	   mfem::out << "rho in [" << rho_min << ", " << rho_max << "]\n";
-   }
-   ProductCoefficient AlphaRhoInv(alpha, RhoInv);
-   
-   
-   //Set up linear form (RHS)
-   ParLinearForm b(&H1_scal);
-   RHSgScal gCoeffScal(u);
-   b.AddDomainIntegrator(new DomainLFIntegrator(gCoeffScal));
-   b.Assemble();
-
-   //Set up bilinear form (LHS)
-   ParBilinearForm a(&H1_scal);
-   a.AddDomainIntegrator(new MassIntegrator(RhoInv)); 
-   a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInv));
-   
-   a.Assemble();
-   a.Finalize();
-   HypreParMatrix *A = a.ParallelAssemble();
-
-   Vector Bigr(H1_scal.TrueVSize()), Xigr;
-   x.GetTrueDofs(Xigr);
-   b.ParallelAssemble(Bigr);
-   Bigr *= -1.0*alpha;
-
-   // 11. Solve the linear system A X = B.
-   HypreSmoother M_prec;
-   M_prec.SetType(HypreSmoother::Jacobi);
-   CGSolver cg(MPI_COMM_WORLD);
-   cg.iterative_mode = true;
-   cg.SetPrintLevel(-1); // -1 for no print
-   cg.SetRelTol(1e-12);
-   cg.SetMaxIter(500);
-   if(t < 1e-3){cg.SetMaxIter(500);}
-   if (true) { cg.SetPreconditioner(M_prec); }
-   cg.SetOperator(*A);
-   cg.Mult(Bigr, Xigr);
-   //delete M_prec;
-   delete A;
-   
-   x.SetFromTrueDofs(Xigr);
 }
 
 /// Trace of a square matrix
