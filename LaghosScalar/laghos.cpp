@@ -820,7 +820,9 @@ int main(int argc, char *argv[])
       case 14: visc = false; break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
+   if(visc_type == 1){visc_const = -1;}
    if (impose_visc || visc_const > 0) { visc = true; }
+   
 
    hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
                                                 H1FESpace, H1FEScalarSpace, L2FESpace, ess_tdofs,
@@ -1130,14 +1132,20 @@ int main(int argc, char *argv[])
       if(!useIGR){
          igr_suffix = "_noigr";
          igr_folder = "WithoutIGR/";
-      } else {
+      } else if(alpha < 0.001){
          alpha_folder = "alpha=" + std::to_string(alpha*1000000) + "e-6/";
+      } else{
+         std::ostringstream oss;
+         oss << std::fixed << std::setprecision(2) << alpha*1000;
+         alpha_folder = "alpha=" + oss.str() + "e-3/";
       }
       if(visc){
         if(visc_const < 0){ 
           visc_suffix = "_LaghosVisc";
         } else{
-          visc_suffix =  "_" + std::to_string(visc_const);
+          std::ostringstream oss;
+          oss << std::fixed << std::setprecision(2) << visc_const;
+          visc_suffix =  "_" + oss.str();
         }
       }
       if(TestPrint){ igr_folder = ""; problem_folder = ""; }
