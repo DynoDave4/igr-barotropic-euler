@@ -975,8 +975,8 @@ if(useIGR){
    cg.iterative_mode = true;
    cg.SetPrintLevel(-1); // -1 for no print
    cg.SetRelTol(1e-12);
-   cg.SetMaxIter(500);
-   if(t < 1e-3){cg.SetMaxIter(500);}
+   cg.SetMaxIter(30);
+   //if(t < 1e-3){cg.SetMaxIter(500);}
    if (true) { cg.SetPreconditioner(M_prec); }
    cg.SetOperator(*A);
    cg.Mult(Bigr, Xigr);
