@@ -176,7 +176,7 @@ int main(int argc, char *argv[])
    //New IGR variables
    double alpha = 0.001;
    double stallIGR = -0.3;
-   double e_reg = 1.0;
+   double e_reg = 0.0;
    bool useIGR = true;
    bool corner = false;    // Used for position Sedov and Gaussian blasts
    double variance = 0.1;
@@ -753,7 +753,7 @@ int main(int argc, char *argv[])
       // divide amount of blast energy by 2^d due to simulating only a portion
       // of the symmetric blast.
       DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
-                               blast_position[2], blast_energy / pow(2, dim));
+                               blast_position[2], blast_energy / (corner ? pow(2, dim) : 1.0));
       e_coeff.SetTol(delta_tol);
       l2_e.ProjectCoefficient(e_coeff);
 

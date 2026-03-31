@@ -90,6 +90,7 @@ protected:
    mutable ParGridFunction alpha_gf;
    double visc_const = 0.0001;
    int visc_type = 3;
+   mutable Vector Bigr, Xigr;
    
    //Original Lag
    ParFiniteElementSpace &H1, &L2;

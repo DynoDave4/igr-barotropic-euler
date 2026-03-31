@@ -194,6 +194,7 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
    qupdate(nullptr),
    X(H1c.GetTrueVSize()),
    B(H1c.GetTrueVSize()),
+   Bigr(H1_scal.TrueVSize()), Xigr(H1_scal.TrueVSize()),
    one(L2Vsize),
    rhs(H1Vsize),
    e_rhs(L2Vsize),
@@ -201,9 +202,9 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
    dvc_gf(&H1c)
 {
    cg_igr.iterative_mode = true;
-   cg_igr.SetRelTol(1e-12);
-   cg_igr.SetMaxIter(2000);
-   cg_igr.SetPrintLevel(0);
+   cg_igr.SetRelTol(1e-6);
+   cg_igr.SetMaxIter(20);
+   cg_igr.SetPrintLevel(-1);
    amg_prec.SetPrintLevel(0);
 	
    block_offsets[0] = 0;
@@ -916,8 +917,6 @@ if(useIGR){
    
    alpha_q.ProjectGridFunction(alpha_gf);
 
-   
-   
 
    for (int z = 0; z < NE; z++)
    {
@@ -939,11 +938,6 @@ if(useIGR){
       }
    } 
 
-   //mfem::out << "alpha_q: [" << alpha_q.Min() << ", " << alpha_q.Max() << "]\n";
-   //mfem::out << "rho_q: [" << rho_q.Min() << ", " << rho_q.Max() << "]\n";
-   //mfem::out << "rho_q_inv: [" << rho_q_inv.Min() << ", " << rho_q_inv.Max() << "]\n";
-   //mfem::out << "rho_q_alpha_inv: [" << rho_q_alpha_inv.Min() << ", " << rho_q_alpha_inv.Max() << "]\n";
-
    QuadratureFunctionCoefficient RhoInvCoeff(rho_q_inv);
    QuadratureFunctionCoefficient AlphaRhoInvCoeff(rho_q_alpha_inv); 
 
@@ -963,24 +957,14 @@ if(useIGR){
    a.Finalize();
    HypreParMatrix *A = a.ParallelAssemble();
 
-   Vector Bigr(H1_scal.TrueVSize()), Xigr(H1_scal.TrueVSize());
    igr_gf.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
    Bigr *= -1.0;
 
    // 11. Solve the linear system A X = B.
-   HypreSmoother M_prec;
-   M_prec.SetType(HypreSmoother::Jacobi);
-   CGSolver cg(MPI_COMM_WORLD);
-   cg.iterative_mode = true;
-   cg.SetPrintLevel(-1); // -1 for no print
-   cg.SetRelTol(1e-12);
-   cg.SetMaxIter(30);
-   //if(t < 1e-3){cg.SetMaxIter(500);}
-   if (true) { cg.SetPreconditioner(M_prec); }
-   cg.SetOperator(*A);
-   cg.Mult(Bigr, Xigr);
-   //delete M_prec;
+   cg_igr.SetOperator(*A);
+   amg_prec.SetOperator(*A);         // reset AMG for new A
+   cg_igr.Mult(Bigr, Xigr);
    delete A;
    
    igr_gf.SetFromTrueDofs(Xigr);
