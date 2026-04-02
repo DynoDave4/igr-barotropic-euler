@@ -108,6 +108,155 @@ public:
    }
 };
 
+class Alpha4 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha4(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Form G = J^T J
+      DenseMatrix G(dim);
+      MultAtB(J, J, G);
+
+      double eig_val_data[3] = {0.0, 0.0, 0.0};
+      double eig_vec_data[9] = {0.0};
+
+      if (dim == 1)
+      {
+         eig_val_data[0] = G(0,0);
+         eig_vec_data[0] = 1.0;
+      }
+      else
+      {
+         G.CalcEigenvalues(eig_val_data, eig_vec_data);
+      }
+
+      // Extract min eigenvalue
+      double val = eig_val_data[0];
+      for (int i = 1; i < dim; i++)
+      {      val = std::min(val, eig_val_data[i]);      }
+
+      return alpha * val;
+   }
+};
+
+class Alpha5 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha5(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Form G = J^T J
+      DenseMatrix G(dim);
+      MultAtB(J, J, G);
+
+      double eig_val_data[3] = {0.0, 0.0, 0.0};
+      double eig_vec_data[9] = {0.0};
+
+      if (dim == 1)
+      {
+         eig_val_data[0] = G(0,0);
+         eig_vec_data[0] = 1.0;
+      }
+      else
+      {
+         G.CalcEigenvalues(eig_val_data, eig_vec_data);
+      }
+
+      // Extract max eigenvalue
+      double val = eig_val_data[0];
+      for (int i = 1; i < dim; i++)
+      {      val = std::max(val, eig_val_data[i]);      }
+
+      return alpha * val;
+   }
+};
+
+class Alpha6 : public Coefficient
+{
+private:
+   double alpha;
+   const GridFunction &vel;  // velocity field
+
+public:
+   Alpha6(double a, const GridFunction &v)
+      : alpha(a), vel(v) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Evaluate velocity at this point
+      Vector v(dim);
+      vel.GetVectorValue(T, ip, v);
+
+      // Compute J * v
+      Vector Jv(dim);
+      J.Mult(v, Jv);
+
+      // Compute ||Jv||^2
+      double val = Jv * Jv;
+
+      DenseMatrix sgrad_v(dim);
+      vel.GetVectorGradient(T, sgrad_v);
+
+      /*
+      
+
+               v.GetVectorGradient(*T, sgrad_v);
+
+               double vorticity_coeff = 1.0;
+               if (use_vorticity)
+               {
+                  const double grad_norm = sgrad_v.FNorm();
+                  const double div_v = fabs(sgrad_v.Trace());
+                  vorticity_coeff = (grad_norm > 0.0) ? div_v / grad_norm : 1.0;
+               }
+
+               sgrad_v.Symmetrize();  // Symmetric version of the Jacobian of v
+               double eig_val_data[3], eig_vec_data[9];
+               if (dim==1)
+               {
+                  eig_val_data[0] = sgrad_v(0, 0);
+                  eig_vec_data[0] = 1.;
+               }
+               else { sgrad_v.CalcEigenvalues(eig_val_data, eig_vec_data); }
+      
+      
+      */
+
+      return alpha * val;
+   }
+};
+
+// Try anisotropic alpha where we put it inside the trace and alpha <-> G4
+// alpha (tr^2[Du] + tr[Du^2]) <-> tr^2[sqrt(alpha) Du] + tr(sqrt(alpha)[Du])^2
+
+
 class ScalInv : public Coefficient //Takes in two terms
 {
    private:
@@ -203,7 +352,7 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
 {
    cg_igr.iterative_mode = true;
    cg_igr.SetRelTol(1e-6);
-   cg_igr.SetMaxIter(20);
+   cg_igr.SetMaxIter(5);
    cg_igr.SetPrintLevel(-1);
    amg_prec.SetPrintLevel(0);
 	
@@ -914,6 +1063,18 @@ if(useIGR){
       ProductCoefficient alpha_g(alpha3_coeff, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
       b.Assemble();}
+   if(at == 4){
+      Alpha4 alpha4_coeff(alpha); // true for max eigenvalue
+      alpha_gf.ProjectCoefficient(alpha4_coeff);
+      ProductCoefficient alpha_g(alpha4_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+      b.Assemble();}
+   if(at == 5){
+      Alpha5 alpha5_coeff(alpha); // true for max eigenvalue
+      alpha_gf.ProjectCoefficient(alpha5_coeff);
+      ProductCoefficient alpha_g(alpha5_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+      b.Assemble();}
    
    alpha_q.ProjectGridFunction(alpha_gf);
 
@@ -964,6 +1125,8 @@ if(useIGR){
    // 11. Solve the linear system A X = B.
    cg_igr.SetOperator(*A);
    amg_prec.SetOperator(*A);         // reset AMG for new A
+   cg_igr.SetMaxIter(20);
+   if(t < 0.005){cg_igr.SetMaxIter(500);}
    cg_igr.Mult(Bigr, Xigr);
    delete A;
    

@@ -182,7 +182,7 @@ int main(int argc, char *argv[])
    double variance = 0.1;
    double visc_const = 250.1234;  // Viscosity constant i.e. A
    int visc_type = 3;  // 1 is Laghos Artificial Visc, 2 is const A, 3 is dx(A ||u|| + c)
-   int alpha_type = 3; // 1 is const alpha, 2 is function, 3 is const*dx^2
+   int alpha_type = 3; // 1 is const alpha, 2 is function, 3 is const*dx^2, 4 - min dx, 5 - max dx
    bool TestPrint = false;
    bool gfread = false;
 
