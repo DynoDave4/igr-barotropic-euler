@@ -183,6 +183,7 @@ int main(int argc, char *argv[])
    double visc_const = 250.1234;  // Viscosity constant i.e. A
    int visc_type = 3;  // 1 is Laghos Artificial Visc, 2 is const A, 3 is dx(A ||u|| + c)
    int alpha_type = 3; // 1 is const alpha, 2 is function, 3 is const*dx^2, 4 - min dx, 5 - max dx
+                       // 6 uses J^T J, 7 uses J J^T
    bool TestPrint = false;
    bool gfread = false;
 
@@ -1153,6 +1154,8 @@ int main(int argc, char *argv[])
       std::ostringstream oss;
       oss << std::setprecision(3) << t_final * 1000;
       std::string t_str = oss.str();
+
+      if(rs_levels == 0){rs_levels = nx;}
       
       if(Mpi::Root()){std::cout << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix << visc_suffix << "\n";}
       mesh_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix << visc_suffix << "_mesh";
@@ -1386,7 +1389,7 @@ double rho0(const Vector &x)
       case 7: return x(1) >= 0.0 ? 2.0 : 1.0;
       case 8: return 1.0;
 	   case 9: return 1.0;
-	   case 10: return 0.5*tanh(200*(0.5-x(0)))+.6;
+	   case 10: return 0.5*tanh(100*(0.5-x(0)))+.6;
       case 11: return 1.0;
       case 12: return (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4));
       case 13: return 0.5*tanh(100*(0.5-x(0)))+.6;

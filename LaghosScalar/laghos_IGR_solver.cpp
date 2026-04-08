@@ -57,6 +57,84 @@ class RHSgScal : public Coefficient //Takes in one term
    }
 };
 
+class RHSgScal2 : public Coefficient
+{
+private:
+   GridFunction &u;
+
+public:
+   RHSgScal2(GridFunction &u_) : u(u_) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+      int dim = u.FESpace()->GetVDim();
+
+      DenseMatrix Du(dim);
+      u.GetVectorGradient(T, Du);
+
+      const DenseMatrix &J = T.Jacobian();
+
+      DenseMatrix A(dim);
+      Mult(J, Du, A);
+
+      // trace(A)
+      double trA = 0.0;
+      for (int i = 0; i < dim; i++){ trA += A(i,i); }
+
+      // trace(A A)
+      DenseMatrix AA(dim);
+      Mult(A, A, AA);
+
+      double trAA = 0.0;
+      for (int i = 0; i < dim; i++){ trAA += AA(i,i); }
+
+      return trA*trA + trAA;
+   }
+};
+
+class RHSgScal3 : public Coefficient
+{
+private:
+   GridFunction &u;
+
+public:
+   RHSgScal3(GridFunction &u_) : u(u_) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+      int dim = u.FESpace()->GetVDim();
+
+      DenseMatrix Du(dim);
+      u.GetVectorGradient(T, Du);
+
+      const DenseMatrix &J = T.Jacobian();
+      DenseMatrix JT;
+      JT.Transpose(J);
+
+      DenseMatrix A(dim);
+      Mult(JT, Du, A);
+
+      // trace(A)
+      double trA = 0.0;
+      for (int i = 0; i < dim; i++){ trA += A(i,i); }
+
+      // trace(A A)
+      DenseMatrix AA(dim);
+      Mult(A, A, AA);
+
+      double trAA = 0.0;
+      for (int i = 0; i < dim; i++){ trAA += AA(i,i); }
+
+      return trA*trA + trAA;
+   }
+};
+
+
+
 class Alpha2 : public Coefficient
 {
 private:
@@ -103,6 +181,8 @@ public:
 
       // Compute h^2 ~ (volume)^(2/d)
       const double h2 = pow(fabs(detJ), 2.0 / dim);
+
+      //std::cout <<  alpha * h2 << ", " << alpha << std::endl;
 
       return alpha * h2;
    }
@@ -192,66 +272,66 @@ public:
    }
 };
 
-class Alpha6 : public Coefficient
+class Alpha6 : public MatrixCoefficient
 {
 private:
    double alpha;
-   const GridFunction &vel;  // velocity field
 
 public:
-   Alpha6(double a, const GridFunction &v)
-      : alpha(a), vel(v) {}
+   Alpha6(double a, int dim) : MatrixCoefficient(dim), alpha(a) {}
 
-   virtual double Eval(ElementTransformation &T,
-                       const IntegrationPoint &ip)
+   virtual void Eval(DenseMatrix &M,
+                     ElementTransformation &T,
+                     const IntegrationPoint &ip)
    {
       T.SetIntPoint(&ip);
 
       const DenseMatrix &J = T.Jacobian();
       const int dim = J.Height();
 
-      // Evaluate velocity at this point
-      Vector v(dim);
-      vel.GetVectorValue(T, ip, v);
+      // Resize output matrix
+      M.SetSize(dim);
 
-      // Compute J * v
-      Vector Jv(dim);
-      J.Mult(v, Jv);
+      // Compute C = J^T J
+      MultAtB(J, J, M);
 
-      // Compute ||Jv||^2
-      double val = Jv * Jv;
+      // Scale by alpha
+      M *= alpha;
 
-      DenseMatrix sgrad_v(dim);
-      vel.GetVectorGradient(T, sgrad_v);
-
-      /*
-      
-
-               v.GetVectorGradient(*T, sgrad_v);
-
-               double vorticity_coeff = 1.0;
-               if (use_vorticity)
-               {
-                  const double grad_norm = sgrad_v.FNorm();
-                  const double div_v = fabs(sgrad_v.Trace());
-                  vorticity_coeff = (grad_norm > 0.0) ? div_v / grad_norm : 1.0;
-               }
-
-               sgrad_v.Symmetrize();  // Symmetric version of the Jacobian of v
-               double eig_val_data[3], eig_vec_data[9];
-               if (dim==1)
-               {
-                  eig_val_data[0] = sgrad_v(0, 0);
-                  eig_vec_data[0] = 1.;
-               }
-               else { sgrad_v.CalcEigenvalues(eig_val_data, eig_vec_data); }
-      
-      
-      */
-
-      return alpha * val;
+      //std::cout << J(0,0) << ", " << M(0,0) << ", " << alpha << std::endl;
    }
 };
+
+class Alpha7 : public MatrixCoefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha7(double a, int dim) : MatrixCoefficient(dim), alpha(a) {}
+
+   virtual void Eval(DenseMatrix &M,
+                     ElementTransformation &T,
+                     const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Resize output matrix
+      M.SetSize(dim);
+
+      // Compute C = J^T J
+      MultABt(J, J, M);
+
+      // Scale by alpha
+      M *= alpha;
+
+      //std::cout << J(0,0) << ", " << M(0,0) << ", " << alpha << std::endl;
+   }
+};
+
 
 // Try anisotropic alpha where we put it inside the trace and alpha <-> G4
 // alpha (tr^2[Du] + tr[Du^2]) <-> tr^2[sqrt(alpha) Du] + tr(sqrt(alpha)[Du])^2
@@ -352,7 +432,6 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
 {
    cg_igr.iterative_mode = true;
    cg_igr.SetRelTol(1e-6);
-   cg_igr.SetMaxIter(5);
    cg_igr.SetPrintLevel(-1);
    amg_prec.SetPrintLevel(0);
 	
@@ -1043,7 +1122,10 @@ if(useIGR){
 
    //Set up linear form (RHS)
    ParLinearForm b(&H1_scal);
+   ParBilinearForm a(&H1_scal);
    RHSgScal gCoeffScal(v);
+   
+   
 
    if(at == 1){
       ConstantCoefficient alpha_const(alpha);
@@ -1064,19 +1146,31 @@ if(useIGR){
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
       b.Assemble();}
    if(at == 4){
-      Alpha4 alpha4_coeff(alpha); // true for max eigenvalue
+      Alpha4 alpha4_coeff(alpha); // min
       alpha_gf.ProjectCoefficient(alpha4_coeff);
       ProductCoefficient alpha_g(alpha4_coeff, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
       b.Assemble();}
    if(at == 5){
-      Alpha5 alpha5_coeff(alpha); // true for max eigenvalue
+      Alpha5 alpha5_coeff(alpha); // max
       alpha_gf.ProjectCoefficient(alpha5_coeff);
       ProductCoefficient alpha_g(alpha5_coeff, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
       b.Assemble();}
+   if(at == 6){
+      RHSgScal2 gCoeffScal2(v);
+      ConstantCoefficient alpha_const(alpha);
+      ProductCoefficient alpha_g2(alpha_const, gCoeffScal2);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g2));
+      b.Assemble();}
+   if(at == 7){
+      RHSgScal3 gCoeffScal3(v);
+      ConstantCoefficient alpha_const(alpha);
+      ProductCoefficient alpha_g3(alpha_const, gCoeffScal3);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g3));
+      b.Assemble();}
    
-   alpha_q.ProjectGridFunction(alpha_gf);
+   if(at < 6){ alpha_q.ProjectGridFunction(alpha_gf); }
 
 
    for (int z = 0; z < NE; z++)
@@ -1095,12 +1189,32 @@ if(useIGR){
          rho_q(idx)         = rho;
          rho_q_inv(idx)     = 1.0 / rho;
 
-         rho_q_alpha_inv(idx) = alpha_q(idx) / rho;
+         if(at != 6){ rho_q_alpha_inv(idx) = alpha_q(idx) / rho; }
       }
    } 
-
+   
    QuadratureFunctionCoefficient RhoInvCoeff(rho_q_inv);
-   QuadratureFunctionCoefficient AlphaRhoInvCoeff(rho_q_alpha_inv); 
+   a.AddDomainIntegrator(new MassIntegrator(RhoInvCoeff)); 
+
+   if(at < 6){
+      QuadratureFunctionCoefficient AlphaRhoInvCoeff(rho_q_alpha_inv); 
+      a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInvCoeff));
+      a.Assemble();
+      a.Finalize();
+   } else if(at == 6) {
+      Alpha6 alpha6_coeff(alpha, dim); // Matrix type
+      ScalarMatrixProductCoefficient MatAlpha(RhoInvCoeff, alpha6_coeff);
+      a.AddDomainIntegrator(new DiffusionIntegrator(MatAlpha));
+      a.Assemble();
+      a.Finalize();
+   } else if(at == 7) {
+      Alpha7 alpha7_coeff(alpha, dim); // Matrix type
+      ScalarMatrixProductCoefficient MatAlpha(RhoInvCoeff, alpha7_coeff);
+      a.AddDomainIntegrator(new DiffusionIntegrator(MatAlpha));
+      a.Assemble();
+      a.Finalize();
+   }
+
 
    double rho_min = rho_q.Min();
    double rho_max = rho_q.Max();
@@ -1110,12 +1224,6 @@ if(useIGR){
    
 
    //Set up bilinear form (LHS)
-   ParBilinearForm a(&H1_scal);
-   a.AddDomainIntegrator(new MassIntegrator(RhoInvCoeff)); 
-   a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInvCoeff));
-   
-   a.Assemble();
-   a.Finalize();
    HypreParMatrix *A = a.ParallelAssemble();
 
    igr_gf.GetTrueDofs(Xigr);
@@ -1125,8 +1233,9 @@ if(useIGR){
    // 11. Solve the linear system A X = B.
    cg_igr.SetOperator(*A);
    amg_prec.SetOperator(*A);         // reset AMG for new A
+   cg_igr.SetPreconditioner(amg_prec);
    cg_igr.SetMaxIter(20);
-   if(t < 0.005){cg_igr.SetMaxIter(500);}
+   if(t < 0.001){cg_igr.SetMaxIter(100);}
    cg_igr.Mult(Bigr, Xigr);
    delete A;
    
