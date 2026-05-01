@@ -187,6 +187,8 @@ int main(int argc, char *argv[])
                        // 6 uses J^T J, 7 uses J J^T
    bool TestPrint = false;
    bool gfread = false;
+   const char *ParaPre = "ParaView/";
+   bool paraview = false;
 
    OptionsParser args(argc, argv);
    args.AddOption(&dim, "-dim", "--dimension", "Dimension of the problem.");
@@ -306,6 +308,9 @@ int main(int argc, char *argv[])
                   "Sets the way we add alpha.");
    args.AddOption(&gfread, "-read", "--read", "-no-read", "--no-read",
                   "Enable or disable reading the grid function.");
+   args.AddOption(&paraview, "-paraview", "--paraview-datafiles", "-no-paraview",
+                  "--no-paraview-datafiles",
+                  "Save data files for ParaView (paraview.org) visualization.");
 
    args.Parse();
    if (!args.Good())
@@ -903,6 +908,65 @@ int main(int argc, char *argv[])
    long mem=0, mmax=0, msum=0;
    long dmem = 0, dmmax = 0, dmsum = 0;
    int checks = 0;
+
+
+
+   const char *igr_suffix = "", *igr_folder = "WithIGR/";
+   std::string problem_folder = "p" + std::to_string(problem) + "/", visc_suffix = "", alpha_folder = "";
+   if(!useIGR){
+      igr_suffix = "_noigr";
+      igr_folder = "WithoutIGR/";
+   } else if(alpha < 0.001){
+      alpha_folder = "alpha=" + std::to_string(alpha*1000000) + "e-6/";
+   } else{
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(2) << alpha*1000;
+      alpha_folder = "alpha=" + oss.str() + "e-3/";
+   }
+   if(visc){
+   if(visc_const < 0){ 
+      visc_suffix = "_LaghosVisc";
+   } else{
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(2) << visc_const;
+      visc_suffix =  "_" + oss.str();
+   }
+   }
+   if(TestPrint){ igr_folder = ""; problem_folder = ""; }
+
+   std::ostringstream oss;
+   oss << std::setprecision(3) << t_final * 1000;
+   std::string t_str = oss.str();
+   double para_vis_dt = t_final / 100.0;
+   double para_next_vis_time = 0.0;
+   int para_vis_cycle = 0;
+   std::string folder = std::string(ParaPre) + igr_folder + alpha_folder + "p" + std::to_string(problem);
+   std::string run_name = "Laghos_" + std::to_string(problem) + "_" +
+                       std::to_string(rs_levels) + "_" +
+                       std::to_string(order_v) +
+                       std::to_string(order_e) +
+                       std::to_string(ode_solver_type) +
+                       std::to_string(visc_type) +
+                       std::to_string(alpha_type) + "_" +
+                       t_str + igr_suffix + visc_suffix;
+
+   
+   ParaViewDataCollection pvdc("TestP9", &pmesh);
+   if(paraview){
+      pvdc.SetPrefixPath(folder);
+      pvdc.SetLevelsOfDetail(order_v);
+      pvdc.SetDataFormat(VTKFormat::BINARY);
+      pvdc.SetHighOrderOutput(true);
+   
+      pvdc.RegisterField("density", &rho_gf);
+      pvdc.RegisterField("velocity", &v_gf);
+      pvdc.RegisterField("energy", &e_gf);
+      pvdc.RegisterField("igr", &igr_gf);
+
+      pvdc.SetCycle(para_vis_cycle);
+      pvdc.SetTime(t);
+      pvdc.Save();
+   }
    //   const double internal_energy = hydro.InternalEnergy(e_gf);
    //   const double kinetic_energy = hydro.KineticEnergy(v_gf);
    //   if (mpi.Root())
@@ -1110,6 +1174,19 @@ int main(int argc, char *argv[])
             e_ofs.close();
          }
       }
+      
+      //ParaView Print
+      if(paraview){
+         if (t >= para_next_vis_time || ti == 0)
+         {
+            pvdc.SetCycle(para_vis_cycle);
+            pvdc.SetTime(t);
+            pvdc.Save();
+
+            para_next_vis_time += para_vis_dt;
+            para_vis_cycle++;
+         }
+      }
 
       // Problems checks
       if (check)
@@ -1133,32 +1210,6 @@ int main(int argc, char *argv[])
    if (gfprint)
    {
       std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
-      const char *igr_suffix = "", *igr_folder = "WithIGR/";
-      std::string problem_folder = "p" + std::to_string(problem) + "/", visc_suffix = "", alpha_folder = "";
-      if(!useIGR){
-         igr_suffix = "_noigr";
-         igr_folder = "WithoutIGR/";
-      } else if(alpha < 0.001){
-         alpha_folder = "alpha=" + std::to_string(alpha*1000000) + "e-6/";
-      } else{
-         std::ostringstream oss;
-         oss << std::fixed << std::setprecision(2) << alpha*1000;
-         alpha_folder = "alpha=" + oss.str() + "e-3/";
-      }
-      if(visc){
-        if(visc_const < 0){ 
-          visc_suffix = "_LaghosVisc";
-        } else{
-          std::ostringstream oss;
-          oss << std::fixed << std::setprecision(2) << visc_const;
-          visc_suffix =  "_" + oss.str();
-        }
-      }
-      if(TestPrint){ igr_folder = ""; problem_folder = ""; }
-
-      std::ostringstream oss;
-      oss << std::setprecision(3) << t_final * 1000;
-      std::string t_str = oss.str();
 
       if(rs_levels == 0){rs_levels = nx;}
       
