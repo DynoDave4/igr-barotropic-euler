@@ -78,6 +78,7 @@ using namespace mfem;
 // Choice for the problem setup.
 static int problem, dim;
 real_t Sx = 1, Sy = 1, Sz = 1;  // Sx was "length" in my previous code
+int sharpness = 100;
 
 // Forward declarations.
 double e0(const Vector &);
@@ -113,9 +114,9 @@ public:
       mfem::Vector x;
       T.Transform(ip, x);   // x = physical coordinates
 	  int dim = T.GetSpaceDim();
-	  double out = 1.0;
+	  double out = h;
 	  for(int i=0; i<dim; i++){
-		  out *= h*Gauss((x[i] - 0.5) / sqrt(2*var)) / sqrt(2*3.141592*var);
+		  out *= Gauss((x[i] - 0.5) / sqrt(2*var)) / sqrt(2*3.141592*var);
 	  }
       return out;
    }
@@ -295,6 +296,8 @@ int main(int argc, char *argv[])
                   "Do we run without igr for a bit first?");
    args.AddOption(&e_reg, "-er", "--energy-reg",
                   "Do we set background energy to something?");
+   args.AddOption(&sharpness, "-sharp", "--sharpness",
+                  "Sets the sharpness of the initial condition.");
    args.AddOption(&visc_const, "-vc", "--visc-const",
                   "Sets the viscosity constant.");
    args.AddOption(&visc_type, "-vt", "--visc-type",
@@ -819,6 +822,7 @@ int main(int argc, char *argv[])
       case 12: visc = false; break;
       case 13: visc = false; break;
       case 14: visc = false; break;
+      case 15: visc = true; S.HostRead(); break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if(visc_type == 1){visc_const = -1;}
@@ -976,6 +980,7 @@ int main(int argc, char *argv[])
          ti--; continue;
       }
       else if (dt_est > 1.25 * dt) { dt *= 1.02; }
+      //dt = 0.00001;
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -1205,7 +1210,7 @@ int main(int argc, char *argv[])
    auto end = std::chrono::high_resolution_clock::now();
    std::chrono::duration<double> duration = end - start;
    double elapsed_seconds = duration.count();
-   cout << "Execution time: " << elapsed_seconds << " seconds." << endl; 
+   if(Mpi::Root()){cout << "Execution time: " << elapsed_seconds << " seconds." << endl; }
 
    MFEM_VERIFY(!check || checks == 2, "Check error!");
 
@@ -1394,6 +1399,11 @@ double rho0(const Vector &x)
       case 12: return (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4));
       case 13: return 0.5*tanh(100*(0.5-x(0)))+.6;
       case 14: return ((x(0) < 0.4) ? 1.6*tanh(40*(0.2-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
+      case 15:
+      {
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         return lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
+      } 
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1419,6 +1429,11 @@ double gamma_func(const Vector &x)
       case 12: return 1.4;
       case 13: return 1.4;
       case 14: return 1.4;
+      case 15:
+      {
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         return lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
+      } 
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1514,6 +1529,7 @@ void v0(const Vector &x, Vector &v)
          } else { v(0) = tanh(40.0*(0.2-x(0))) + 1.0; }
          break;
       }
+      case 15: v = 0.0; break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1589,7 +1605,13 @@ double e0(const Vector &x)
       case 11: return 0.25;
       case 12: return 0.25*pow(( (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4))),2.0);
       case 13: return 0.25*pow(0.5*tanh(100*(0.5-x(0)))+.6,2.0);
-      case 14: return 2.5*( 4.5*tanh(40*(0.2-x(0))) + 5.5 )/ rho0(x)  ;
+      case 14: return 2.5*( 4.5*tanh(40*(0.2-x(0))) + 5.5 )/ rho0(x);
+      case 15:
+      {
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         //return lambda*(0.1 / rho0(x) / (gamma_func(x) - 1.0)) + (1-lambda)*(2.0);
+         return lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
+      } 
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }

@@ -966,13 +966,14 @@ void LagrangianIGRHydroOperator::PrintTimingData(bool IamRoot, int steps,
                                               const bool fom) const
 {
    const MPI_Comm com = H1.GetComm();
-   double my_rt[5], T[5];
+   double my_rt[6], T[6];
    my_rt[0] = timer.sw_cgH1.RealTime();
    my_rt[1] = timer.sw_cgL2.RealTime();
    my_rt[2] = timer.sw_force.RealTime();
    my_rt[3] = timer.sw_qdata.RealTime();
-   my_rt[4] = my_rt[0] + my_rt[2] + my_rt[3];
-   MPI_Reduce(my_rt, T, 5, MPI_DOUBLE, MPI_MAX, 0, com);
+   my_rt[4] = timer.sw_igr.RealTime();
+   my_rt[5] = my_rt[0] + my_rt[2] + my_rt[3];
+   MPI_Reduce(my_rt, T, 6, MPI_DOUBLE, MPI_MAX, 0, com);
 
    HYPRE_BigInt mydata[3], alldata[3];
    mydata[0] = static_cast<HYPRE_BigInt>(timer.L2dof) * static_cast<HYPRE_BigInt>(timer.L2iter);
@@ -988,8 +989,8 @@ void LagrangianIGRHydroOperator::PrintTimingData(bool IamRoot, int steps,
       const double FOM1 = 1e-6 * H1GTVSize * H1iter / T[0];
       const double FOM2 = 1e-6 * steps * (H1GTVSize + L2GTVSize) / T[2];
       const double FOM3 = 1e-6 * alldata[1] * ir.GetNPoints() / T[3];
-      const double FOM = (FOM1 * T[0] + FOM2 * T[2] + FOM3 * T[3]) / T[4];
-      const double FOM0 = 1e-6 * steps * (H1GTVSize + L2GTVSize) / T[4];
+      const double FOM = (FOM1 * T[0] + FOM2 * T[2] + FOM3 * T[3]) / T[5];
+      const double FOM0 = 1e-6 * steps * (H1GTVSize + L2GTVSize) / T[5];
       cout << endl;
       cout << "CG (H1) total time: " << T[0] << endl;
       cout << "CG (H1) rate (megadofs x cg_iterations / second): "
@@ -1007,7 +1008,9 @@ void LagrangianIGRHydroOperator::PrintTimingData(bool IamRoot, int steps,
       cout << "UpdateQuadData rate (megaquads x timesteps / second): "
            << FOM3 << endl;
       cout << endl;
-      cout << "Major kernels total time (seconds): " << T[4] << endl;
+      cout << "IGR Pressure total time: " << T[4] << endl;
+      cout << endl;
+      cout << "Major kernels total time (seconds): " << T[5] << endl;
       cout << "Major kernels total rate (megadofs x time steps / second): "
            << FOM << endl;
       if (!fom) { return; }
@@ -1039,7 +1042,7 @@ void LagrangianIGRHydroOperator::PrintTimingData(bool IamRoot, int steps,
            << "| " << setw(7) << FOM3
            << "| " << setw(5) << T[3]
            << "| " << setw(7) << FOM
-           << "| " << setw(5) << T[4]
+           << "| " << setw(5) << T[5]
            << "| " << endl;
    }
 }
@@ -1119,6 +1122,9 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    //   Here below the calculation for rho_b is done in batches. This cannot be done for our code so 
    //   I must copy and compute in a single batch
 if(useIGR){
+   LAGHOS_DEVICE_SYNC;
+   timer.sw_igr.Start();
+
 
    //Set up linear form (RHS)
    ParLinearForm b(&H1_scal);
@@ -1189,7 +1195,7 @@ if(useIGR){
          rho_q(idx)         = rho;
          rho_q_inv(idx)     = 1.0 / rho;
 
-         if(at != 6){ rho_q_alpha_inv(idx) = alpha_q(idx) / rho; }
+         if(at < 6){ rho_q_alpha_inv(idx) = alpha_q(idx) / rho; }
       }
    } 
    
@@ -1234,13 +1240,16 @@ if(useIGR){
    cg_igr.SetOperator(*A);
    amg_prec.SetOperator(*A);         // reset AMG for new A
    cg_igr.SetPreconditioner(amg_prec);
-   cg_igr.SetMaxIter(20);
-   if(t < 0.001){cg_igr.SetMaxIter(100);}
+   cg_igr.SetMaxIter(250);
+   if(t < 0.001){cg_igr.SetMaxIter(500);}
    cg_igr.Mult(Bigr, Xigr);
    delete A;
    
    igr_gf.SetFromTrueDofs(Xigr);
    igr_gf.SyncAliasMemory(S);
+
+   LAGHOS_DEVICE_SYNC;
+   timer.sw_igr.Stop();
 
    //ParGridFunction igr_gf2(&L2);
    } else { igr_gf = 0.0; }
@@ -1326,7 +1335,7 @@ if(useIGR){
             
 
             double visc_coeff = 0.0;
-            if (use_viscosity)
+            if (use_viscosity  && visc_const > 0)
             {
                // Compression-based length scale at the point. The first
                // eigenvector of the symmetric velocity gradient gives the
