@@ -42,6 +42,9 @@
 //    p = 5  --> 2D Riemann problem, config. 12 of doi.org/10.1002/num.10025
 //    p = 6  --> 2D Riemann problem, config.  6 of doi.org/10.1002/num.10025
 //    p = 7  --> 2D Rayleigh-Taylor instability problem.
+
+//    p = 15 --> Smoothed triple point
+//    p = 16 --> Smoothed triple point but density not smoothed
 //
 // Sample runs: see README.md, section 'Verification of Results'.
 //
@@ -189,6 +192,8 @@ int main(int argc, char *argv[])
    bool gfread = false;
    const char *ParaPre = "ParaView/";
    bool paraview = false;
+   int frames = 20;
+   double dtmax = -1;
 
    OptionsParser args(argc, argv);
    args.AddOption(&dim, "-dim", "--dimension", "Dimension of the problem.");
@@ -311,6 +316,10 @@ int main(int argc, char *argv[])
    args.AddOption(&paraview, "-paraview", "--paraview-datafiles", "-no-paraview",
                   "--no-paraview-datafiles",
                   "Save data files for ParaView (paraview.org) visualization.");
+   args.AddOption(&frames, "-frames", "--frames",
+                  "Number of ParaView frames.");
+   args.AddOption(&dtmax, "-dtmax", "--dt-max",
+                  "Sets max dt width if wanted.");
 
    args.Parse();
    if (!args.Good())
@@ -828,6 +837,7 @@ int main(int argc, char *argv[])
       case 13: visc = false; break;
       case 14: visc = false; break;
       case 15: visc = true; S.HostRead(); break;
+      case 16: visc = true; S.HostRead(); break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if(visc_type == 1){visc_const = -1;}
@@ -937,7 +947,7 @@ int main(int argc, char *argv[])
    std::ostringstream oss;
    oss << std::setprecision(3) << t_final * 1000;
    std::string t_str = oss.str();
-   double para_vis_dt = t_final / 100.0;
+   double para_vis_dt = t_final / frames;
    double para_next_vis_time = 0.0;
    int para_vis_cycle = 0;
    std::string folder = std::string(ParaPre) + igr_folder + alpha_folder + "p" + std::to_string(problem);
@@ -1024,6 +1034,7 @@ int main(int argc, char *argv[])
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
+      if(dtmax > 0 && dt >dtmax){ dt = dtmax;}
       ode_solver->Step(S, t, dt);
       steps++;
 
@@ -1044,7 +1055,17 @@ int main(int argc, char *argv[])
          ti--; continue;
       }
       else if (dt_est > 1.25 * dt) { dt *= 1.02; }
-      //dt = 0.00001;
+      if(dtmax > 0 && dt >dtmax){ dt = dtmax;}
+      if (dt_est < 1e-7) {
+         if (Mpi::Root()) {
+            cout << "WARNING: dt_est = " << dt_est
+                 << " fell below 1e-7 at t = " << t
+                 << ". Stopping early." << endl;
+         }
+         t_final = t;
+         last_step = true;
+      }
+      
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -1174,7 +1195,7 @@ int main(int argc, char *argv[])
             e_ofs.close();
          }
       }
-      
+
       //ParaView Print
       if(paraview){
          if (t >= para_next_vis_time || ti == 0)
@@ -1455,6 +1476,9 @@ double rho0(const Vector &x)
          double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
          return lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
       } 
+      case 16: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
+                        : x(0) > 1.0 && ((x(1) < 1.5 && x(2) < 1.5) ||
+                                         (x(1) > 1.5 && x(2) > 1.5)) ? 0.125 : 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1485,6 +1509,9 @@ double gamma_func(const Vector &x)
          double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
          return lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
       } 
+      case 16:
+         if (dim == 1) { return (x(0) > 0.5) ? 1.4 : 1.5; }
+         else { return (x(0) > 1.0 && x(1) <= 1.5) ? 1.4 : 1.5; }
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1581,6 +1608,7 @@ void v0(const Vector &x, Vector &v)
          break;
       }
       case 15: v = 0.0; break;
+      case 16: v = 0.0; break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1663,6 +1691,17 @@ double e0(const Vector &x)
          //return lambda*(0.1 / rho0(x) / (gamma_func(x) - 1.0)) + (1-lambda)*(2.0);
          return lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
       } 
+      case 16:
+      { 
+         
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         double smooth_e = lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
+         double smooth_rho = lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
+         double smooth_gamma = lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
+         double smooth_p = (smooth_gamma - 1)*smooth_rho*smooth_e;
+
+         return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
+      }
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }

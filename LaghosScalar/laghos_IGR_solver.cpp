@@ -384,7 +384,7 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
 												 bool useIGR) :
    TimeDependentOperator(size),
    H1(h1), H1_scal(h1_scal), L2(l2), H1c(H1.GetParMesh(), H1.FEColl(), 1),
-   useIGR(useIGR), cg_igr(MPI_COMM_WORLD), amg_prec(),
+   useIGR(useIGR), cg_igr(MPI_COMM_WORLD), amg_prec(), jacobi_prec(),
    pmesh(H1.GetParMesh()),
    H1Vsize(H1.GetVSize()),
    H1TVSize(H1.TrueVSize()),
@@ -441,6 +441,9 @@ LagrangianIGRHydroOperator::LagrangianIGRHydroOperator(const int size,
    block_offsets[3] = block_offsets[2] + L2Vsize; //igr_p
    one.UseDevice(true);
    one = 1.0;
+
+   Bigr.UseDevice(true);
+   Xigr.UseDevice(true);
 
    if (p_assembly)
    {
@@ -1122,6 +1125,7 @@ void LagrangianIGRHydroOperator::UpdateQuadratureData(const Vector &S) const
    //   Here below the calculation for rho_b is done in batches. This cannot be done for our code so 
    //   I must copy and compute in a single batch
 if(useIGR){
+   timer.sw_qdata.Stop();
    LAGHOS_DEVICE_SYNC;
    timer.sw_igr.Start();
 
@@ -1238,10 +1242,16 @@ if(useIGR){
 
    // 11. Solve the linear system A X = B.
    cg_igr.SetOperator(*A);
-   amg_prec.SetOperator(*A);         // reset AMG for new A
-   cg_igr.SetPreconditioner(amg_prec);
-   cg_igr.SetMaxIter(250);
+   //amg_prec.SetOperator(*A);         // reset AMG for new A
+   //cg_igr.SetPreconditioner(amg_prec);
+
+   jacobi_prec.SetOperator(*A);
+   cg_igr.SetPreconditioner(jacobi_prec);
+
+   cg_igr.SetMaxIter(5);
    if(t < 0.001){cg_igr.SetMaxIter(500);}
+
+   LAGHOS_DEVICE_SYNC;
    cg_igr.Mult(Bigr, Xigr);
    delete A;
    
@@ -1250,6 +1260,7 @@ if(useIGR){
 
    LAGHOS_DEVICE_SYNC;
    timer.sw_igr.Stop();
+   timer.sw_qdata.Start();
 
    //ParGridFunction igr_gf2(&L2);
    } else { igr_gf = 0.0; }
