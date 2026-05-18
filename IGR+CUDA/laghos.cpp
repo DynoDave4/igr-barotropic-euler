@@ -96,6 +96,36 @@ static long GetMaxRssMB();
 static void display_banner(std::ostream&);
 static void Checks(const int ti, const double norm, int &checks);
 
+double smooth(const Vector &x) {
+	     return exp(-100*(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)));
+      };
+	  
+double Gauss(double x) {return exp(-1*x*x); };
+	  
+class Gaussian : public mfem::Coefficient
+{
+private:
+   double var, h;
+
+public:
+   Gaussian(double var_, double h_)
+      : var(var_), h(h_) {}
+
+   virtual double Eval(mfem::ElementTransformation &T,
+                       const mfem::IntegrationPoint &ip)
+   {
+      mfem::Vector x;
+      T.Transform(ip, x);   // x = physical coordinates
+	  int dim = T.GetSpaceDim();
+	  double out = h;
+	  for(int i=0; i<dim; i++){
+		  out *= Gauss((x[i] - 0.5) / sqrt(2*var)) / sqrt(2*3.141592*var);
+	  }
+      return out;
+   }
+};
+
+
 #ifdef LAGHOS_USE_CALIPER
    static void RecordAdiakMetadata(int dim, const char *mesh_file, int elem_per_mpi,
                                  int nx, int ny, int nz, double blast_energy,
@@ -504,6 +534,9 @@ int main(int argc, char *argv[])
       mesh.EnsureNCMesh();
    }
 
+   if(dim == 1 && myid == 0){cout << "Serial dx = " << (Sx / (mesh.GetNV()-1)) << std::endl;}
+   if(dim == 1 && myid == 0){cout << "Serial dx^2 = " << (Sx / (mesh.GetNV()-1))*(Sx / (mesh.GetNV()-1)) << std::endl;}
+   if(dim == 2 && myid == 0){cout << "Serial dx^2 is about " << Sx*Sy / mesh.GetNV() << std::endl;}
    const int mesh_NE = mesh.GetNE();
    if (Mpi::Root())
    {
@@ -600,6 +633,9 @@ int main(int argc, char *argv[])
    v_gf.MakeRef(&H1FESpace, S, offset[1]);
    e_gf.MakeRef(&L2FESpace, S, offset[2]);
 
+   ParGridFunction igr_gf(&H1FEScalarSpace);
+   igr_gf = 0.0;
+
    // Initialize x_gf using the starting mesh coordinates.
    pmesh.SetNodalGridFunction(&x_gf);
    // Sync the data location of x_gf with its base, S
@@ -678,6 +714,15 @@ int main(int argc, char *argv[])
       case 5: visc = true; break;
       case 6: visc = true; break;
       case 7: source = 2; visc = true; vorticity = true;  break;
+      case 8: visc = true; break;
+	   case 9: visc = false; break;
+	   case 10: visc = false; break;
+      case 11: visc = false; break;
+      case 12: visc = false; break;
+      case 13: visc = false; break;
+      case 14: visc = false; break;
+      case 15: visc = true; S.HostRead(); break;
+      case 16: visc = true; S.HostRead(); break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -748,6 +793,63 @@ int main(int argc, char *argv[])
    long mem=0, mmax=0, msum=0;
    long dmem = 0, dmmax = 0, dmsum = 0;
    int checks = 0;
+
+      const char *igr_suffix = "", *igr_folder = "WithIGR/";
+   std::string problem_folder = "p" + std::to_string(problem) + "/", visc_suffix = "", alpha_folder = "";
+   if(!useIGR){
+      igr_suffix = "_noigr";
+      igr_folder = "WithoutIGR/";
+   } else if(alpha < 0.001){
+      alpha_folder = "alpha=" + std::to_string(alpha*1000000) + "e-6/";
+   } else{
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(2) << alpha*1000;
+      alpha_folder = "alpha=" + oss.str() + "e-3/";
+   }
+   if(visc){
+   if(visc_const < 0){ 
+      visc_suffix = "_LaghosVisc";
+   } else{
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(2) << visc_const;
+      visc_suffix =  "_" + oss.str();
+   }
+   }
+   if(TestPrint){ igr_folder = ""; problem_folder = ""; }
+
+   std::ostringstream oss;
+   oss << std::setprecision(3) << t_final * 1000;
+   std::string t_str = oss.str();
+   double para_vis_dt = t_final / frames;
+   double para_next_vis_time = 0.0;
+   int para_vis_cycle = 0;
+   std::string folder = std::string(ParaPre) + igr_folder + alpha_folder + "p" + std::to_string(problem);
+   std::string run_name = "Laghos_" + std::to_string(problem) + "_" +
+                       std::to_string(rs_levels) + "_" +
+                       std::to_string(order_v) +
+                       std::to_string(order_e) +
+                       std::to_string(ode_solver_type) +
+                       std::to_string(visc_type) +
+                       std::to_string(alpha_type) + "_" +
+                       t_str + igr_suffix + visc_suffix;
+
+   
+   ParaViewDataCollection pvdc("TestP9", &pmesh);
+   if(paraview){
+      pvdc.SetPrefixPath(folder);
+      pvdc.SetLevelsOfDetail(order_v);
+      pvdc.SetDataFormat(VTKFormat::BINARY);
+      pvdc.SetHighOrderOutput(true);
+   
+      pvdc.RegisterField("density", &rho_gf);
+      pvdc.RegisterField("velocity", &v_gf);
+      pvdc.RegisterField("energy", &e_gf);
+      pvdc.RegisterField("igr", &igr_gf);
+
+      pvdc.SetCycle(para_vis_cycle);
+      pvdc.SetTime(t);
+      pvdc.Save();
+   }
    //   const double internal_energy = hydro.InternalEnergy(e_gf);
    //   const double kinetic_energy = hydro.KineticEnergy(v_gf);
    //   if (mpi.Root())
@@ -819,6 +921,7 @@ int main(int argc, char *argv[])
       x_gf.SyncAliasMemory(S);
       v_gf.SyncAliasMemory(S);
       e_gf.SyncAliasMemory(S);
+      //igr_gf.SyncAliasMemory(S);
 
       // Make sure that the mesh corresponds to the new solution state. This is
       // needed, because some time integrators use different S-type vectors
@@ -906,7 +1009,7 @@ int main(int argc, char *argv[])
             visit_dc.Save();
          }
 
-         if (gfprint)
+         if (gfprint && false)
          {
             std::ostringstream mesh_name, rho_name, v_name, e_name;
             mesh_name << basename << "_" << ti << "_mesh";
@@ -936,6 +1039,19 @@ int main(int argc, char *argv[])
          }
       }
 
+      //ParaView Print
+      if(paraview){
+         if (t >= para_next_vis_time || ti == 0)
+         {
+            pvdc.SetCycle(para_vis_cycle);
+            pvdc.SetTime(t);
+            pvdc.Save();
+
+            para_next_vis_time += para_vis_dt;
+            para_vis_cycle++;
+         }
+      }
+
       // Problems checks
       if (check)
       {
@@ -954,6 +1070,53 @@ int main(int argc, char *argv[])
          Checks(ti, e_norm, checks);
       }
    }
+
+   if (gfprint)
+   {
+      std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
+
+      if(rs_levels == 0){rs_levels = nx;}
+      
+      if(Mpi::Root()){std::cout << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "\n";}
+      mesh_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_mesh";
+      rho_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_rho";
+      v_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_v";
+      e_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_e";
+      igr_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix<< visc_suffix<< "_igr";
+      std::ofstream mesh_ofs(mesh_name.str().c_str());
+      mesh_ofs.precision(8);
+      pmesh.PrintAsOne(mesh_ofs);
+      mesh_ofs.close();
+         
+
+      ParGridFunction rho_h1(&H1FEScalarSpace), e_h1(&H1FEScalarSpace);
+      rho_h1.ProjectGridFunction(rho_gf);
+      e_h1.ProjectGridFunction(e_gf);
+
+ 
+      std::ofstream rho_ofs(rho_name.str().c_str());
+      rho_ofs.precision(8);
+      rho_h1.SaveAsOne(rho_ofs);
+      rho_ofs.close();
+
+      std::ofstream v_ofs(v_name.str().c_str());
+      v_ofs.precision(8);
+      v_gf.SaveAsOne(v_ofs);
+      v_ofs.close();
+
+      std::ofstream e_ofs(e_name.str().c_str());
+      e_ofs.precision(8);
+      e_h1.SaveAsOne(e_ofs);
+      e_ofs.close();
+
+      std::ofstream igr_ofs(igr_name.str().c_str());
+      igr_ofs.precision(8);
+      igr_gf.SaveAsOne(igr_ofs);
+      igr_ofs.close();
+   }
+
+
+
 #ifdef LAGHOS_USE_CALIPER
    CALI_CXX_MARK_LOOP_END(mainloop_annotation);
    adiak::value("steps", ti);
@@ -1151,6 +1314,21 @@ double rho0(const Vector &x)
          return 1.0;
       }
       case 7: return x(1) >= 0.0 ? 2.0 : 1.0;
+      case 8: return 1.0;
+	   case 9: return 1.0;
+	   case 10: return 0.5*tanh(100*(0.5-x(0)))+.6;
+      case 11: return 1.0;
+      case 12: return (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4));
+      case 13: return 0.5*tanh(100*(0.5-x(0)))+.6;
+      case 14: return ((x(0) < 0.4) ? 1.6*tanh(40*(0.2-x(0))) + 2.4 : 1 - 0.2*cos(50*(x(0)-0.4)));
+      case 15:
+      {
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         return lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
+      } 
+      case 16: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
+                        : x(0) > 1.0 && ((x(1) < 1.5 && x(2) < 1.5) ||
+                                         (x(1) > 1.5 && x(2) > 1.5)) ? 0.125 : 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1169,6 +1347,21 @@ double gamma_func(const Vector &x)
       case 5: return 1.4;
       case 6: return 1.4;
       case 7: return 5.0 / 3.0;
+      case 8: return 5.0 / 3.0;
+	   case 9: return 5.0 / 3.0;
+	   case 10: return 1.4;
+      case 11: return 1.4;
+      case 12: return 1.4;
+      case 13: return 1.4;
+      case 14: return 1.4;
+      case 15:
+      {
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         return lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
+      } 
+      case 16:
+         if (dim == 1) { return (x(0) > 0.5) ? 1.4 : 1.5; }
+         else { return (x(0) > 1.0 && x(1) <= 1.5) ? 1.4 : 1.5; }
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1237,6 +1430,35 @@ void v0(const Vector &x, Vector &v)
          v(1) = 0.02 * exp(-2*M_PI*x(1)*x(1)) * cos(2*M_PI*x(0));
          break;
       }
+      case 8:
+      {  
+         v = 0.0;   // Shock 2
+         if(x(0) < 0.1){
+            v(0) = 0.0;
+         } else if(x(0) < 0.2){
+            v(0) = 10*x(0) - 1.0;
+         } else if(x(0) < 0.35){
+		      v(0) = 1.0;
+	      } else if(x(0) < 0.45){
+		      v(0) = 4.5 - 10*x(0);
+	      }
+         break;
+      }
+	   case 9: v = 0.0; break;
+	   case 10: v = 0.0; break;
+      case 11: v = 0.0; v(0) = sin(2*M_PI*x(0)); break;
+      case 12: v = 0.0; break;
+      case 13: v = 0.0; break;
+      case 14:
+      {   v = 0.0;
+         //cout << length << std::endl;
+         if (x(0) < 0.2 + (0.5 - Sx / 2) + 0.1 * Sx ) { 
+                  v(0) = tanh(100*(x(0) - (0.5 - Sx / 2) - 0.06*Sx) / Sx ) + 1.0; 
+         } else { v(0) = tanh(40.0*(0.2-x(0))) + 1.0; }
+         break;
+      }
+      case 15: v = 0.0; break;
+      case 16: v = 0.0; break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1305,6 +1527,30 @@ double e0(const Vector &x)
       {
          const double rho = rho0(x), gamma = gamma_func(x);
          return (6.0 - rho * x(1)) / (gamma - 1.0) / rho;
+      }
+      case 8: return 0.0;
+	   case 9: return 0.0; // This case in initialized in main().
+	   case 10: return 0.25;
+      case 11: return 0.25;
+      case 12: return 0.25*pow(( (x(0) < 0.4) ? 1.0 : ((x(0) > 0.6) ? 0.1 : 1.0 - 4.5*(x(0) - 0.4))),2.0);
+      case 13: return 0.25*pow(0.5*tanh(100*(0.5-x(0)))+.6,2.0);
+      case 14: return 2.5*( 4.5*tanh(40*(0.2-x(0))) + 5.5 )/ rho0(x);
+      case 15:
+      {
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         //return lambda*(0.1 / rho0(x) / (gamma_func(x) - 1.0)) + (1-lambda)*(2.0);
+         return lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
+      } 
+      case 16:
+      { 
+         
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         double smooth_e = lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
+         double smooth_rho = lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
+         double smooth_gamma = lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
+         double smooth_p = (smooth_gamma - 1)*smooth_rho*smooth_e;
+
+         return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
       }
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
