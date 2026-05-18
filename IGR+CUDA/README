@@ -1,0 +1,7 @@
+This folder will backup LaghosScal5 i.e. the rewrite of LaghosScal. There are a few goals.
+
+1. Get igr working with CUDA and Partial Assembly.
+2. Rewrite the previous code base in a more streamlined version. This means no more calculating igr randomly as an inserted block, but instead giving it a proper method like how the rhs of velocity and energy are calculated.
+3. Previous versions added the bulk of edits to "IGR" versions of the files, but this is not universally true. The new IGR files should be standalone.
+
+Thus by readding portions step by step we can see what breaks the code and how pieces should be implemented efficiently.
