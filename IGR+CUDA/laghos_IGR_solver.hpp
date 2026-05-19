@@ -201,7 +201,8 @@ public:
                            const double cfl,
                            const bool visc, const bool vort, const bool pa,
                            const double cgt, const int cgiter, double ftz_tol,
-                           const int order_q, bool useIGR_);
+                           const int order_q, bool useIGR_,
+                           double alpha_, int alpha_type_);
    ~LagrangianHydroOperator();
 
    //New IGR Methods

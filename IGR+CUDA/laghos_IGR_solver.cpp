@@ -66,83 +66,6 @@ class RHSgScal : public Coefficient //Takes in one term
    }
 };
 
-class RHSgScal2 : public Coefficient
-{
-private:
-   GridFunction &u;
-
-public:
-   RHSgScal2(GridFunction &u_) : u(u_) {}
-
-   virtual double Eval(ElementTransformation &T,
-                       const IntegrationPoint &ip)
-   {
-      T.SetIntPoint(&ip);
-      int dim = u.FESpace()->GetVDim();
-
-      DenseMatrix Du(dim);
-      u.GetVectorGradient(T, Du);
-
-      const DenseMatrix &J = T.Jacobian();
-
-      DenseMatrix A(dim);
-      Mult(J, Du, A);
-
-      // trace(A)
-      double trA = 0.0;
-      for (int i = 0; i < dim; i++){ trA += A(i,i); }
-
-      // trace(A A)
-      DenseMatrix AA(dim);
-      Mult(A, A, AA);
-
-      double trAA = 0.0;
-      for (int i = 0; i < dim; i++){ trAA += AA(i,i); }
-
-      return trA*trA + trAA;
-   }
-};
-
-class RHSgScal3 : public Coefficient
-{
-private:
-   GridFunction &u;
-
-public:
-   RHSgScal3(GridFunction &u_) : u(u_) {}
-
-   virtual double Eval(ElementTransformation &T,
-                       const IntegrationPoint &ip)
-   {
-      T.SetIntPoint(&ip);
-      int dim = u.FESpace()->GetVDim();
-
-      DenseMatrix Du(dim);
-      u.GetVectorGradient(T, Du);
-
-      const DenseMatrix &J = T.Jacobian();
-      DenseMatrix JT;
-      JT.Transpose(J);
-
-      DenseMatrix A(dim);
-      Mult(JT, Du, A);
-
-      // trace(A)
-      double trA = 0.0;
-      for (int i = 0; i < dim; i++){ trA += A(i,i); }
-
-      // trace(A A)
-      DenseMatrix AA(dim);
-      Mult(A, A, AA);
-
-      double trAA = 0.0;
-      for (int i = 0; i < dim; i++){ trAA += AA(i,i); }
-
-      return trA*trA + trAA;
-   }
-};
-
-
 
 class Alpha2 : public Coefficient
 {
@@ -281,66 +204,6 @@ public:
    }
 };
 
-class Alpha6 : public MatrixCoefficient
-{
-private:
-   double alpha;
-
-public:
-   Alpha6(double a, int dim) : MatrixCoefficient(dim), alpha(a) {}
-
-   virtual void Eval(DenseMatrix &M,
-                     ElementTransformation &T,
-                     const IntegrationPoint &ip)
-   {
-      T.SetIntPoint(&ip);
-
-      const DenseMatrix &J = T.Jacobian();
-      const int dim = J.Height();
-
-      // Resize output matrix
-      M.SetSize(dim);
-
-      // Compute C = J^T J
-      MultAtB(J, J, M);
-
-      // Scale by alpha
-      M *= alpha;
-
-      //std::cout << J(0,0) << ", " << M(0,0) << ", " << alpha << std::endl;
-   }
-};
-
-class Alpha7 : public MatrixCoefficient
-{
-private:
-   double alpha;
-
-public:
-   Alpha7(double a, int dim) : MatrixCoefficient(dim), alpha(a) {}
-
-   virtual void Eval(DenseMatrix &M,
-                     ElementTransformation &T,
-                     const IntegrationPoint &ip)
-   {
-      T.SetIntPoint(&ip);
-
-      const DenseMatrix &J = T.Jacobian();
-      const int dim = J.Height();
-
-      // Resize output matrix
-      M.SetSize(dim);
-
-      // Compute C = J^T J
-      MultABt(J, J, M);
-
-      // Scale by alpha
-      M *= alpha;
-
-      //std::cout << J(0,0) << ", " << M(0,0) << ", " << alpha << std::endl;
-   }
-};
-
 
 // Try anisotropic alpha where we put it inside the trace and alpha <-> G4
 // alpha (tr^2[Du] + tr[Du^2]) <-> tr^2[sqrt(alpha) Du] + tr(sqrt(alpha)[Du])^2
@@ -383,6 +246,23 @@ public:
       return qdata.rho0DetJ0w(idx) / detJ / ip.weight;
    }
 };
+
+static Coefficient *CreateScalarAlphaCoefficient(int at, double alpha,
+                                                 GridFunction &x_gf)
+{
+   switch (at)
+   {
+      case 1: return new ConstantCoefficient(alpha);
+      case 2: return new Alpha2(x_gf, alpha);
+      case 3: return new Alpha3(alpha);
+      case 4: return new Alpha4(alpha);
+      case 5: return new Alpha5(alpha);
+      default:
+         MFEM_ABORT("IGR PA/full Migr scalar operator supports alpha types 1-5. "
+                    "Types 6 and 7 need a matrix-coefficient IGR operator.");
+         return NULL;
+   }
+}
 
 void VisualizeField(socketstream &sock, const char *vishost, int visport,
                     ParGridFunction &gf, const char *title,
@@ -462,10 +342,14 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
                                                  const int cgiter,
                                                  double ftz,
                                                  const int oq,
-												 bool useIGR) :
+												 bool useIGR,
+                                                 double alpha_,
+                                                 int alpha_type_) :
    TimeDependentOperator(size),
    H1(h1), H1_scal(h1_scal), L2(l2), H1c(H1.GetParMesh(), H1.FEColl(), 1),
    useIGR(useIGR), cg_igr(MPI_COMM_WORLD), amg_prec(), jacobi_prec(),
+   alpha(alpha_),
+   at(alpha_type_),
    pmesh(H1.GetParMesh()),
    H1Vsize(H1.GetVSize()),
    H1TVSize(H1.TrueVSize()),
@@ -521,8 +405,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    amg_prec.SetPrintLevel(0);
    jacobi_prec.SetType(HypreSmoother::Jacobi, 1);
 
-   //For now we will just do alpha type 3
-   alpha_typePAcoeff = new Alpha3(alpha);
+   alpha_typePAcoeff = CreateScalarAlphaCoefficient(at, alpha, x_gf);
    massPAcoeff = new CurrentDensityCoefficient(qdata, ir.GetNPoints());
    inv_mass = new RatioCoefficient(1.0, *massPAcoeff);
    alpha_over_mass = new RatioCoefficient(*alpha_typePAcoeff, *massPAcoeff);
@@ -955,48 +838,11 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    ParLinearForm b(&H1_scal);
    RHSgScal gCoeffScal(v);
    
-   if(at == 1){
-      ConstantCoefficient alpha_const(alpha);
-      alpha_gf.ProjectCoefficient(alpha_const);
-      ProductCoefficient alpha_g(alpha_const, gCoeffScal);
-      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-      b.Assemble(); }
-   if(at == 2){
-      Alpha2 alpha2_coeff(x, alpha);
-      alpha_gf.ProjectCoefficient(alpha2_coeff);
-      ProductCoefficient alpha_g(alpha2_coeff, gCoeffScal);
-      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-      b.Assemble(); }
-   if(at == 3){
-      Alpha3 alpha3_coeff(alpha);
-      alpha_gf.ProjectCoefficient(alpha3_coeff); 
-      ProductCoefficient alpha_g(alpha3_coeff, gCoeffScal);
-      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-      b.Assemble();}
-   if(at == 4){
-      Alpha4 alpha4_coeff(alpha); // min
-      alpha_gf.ProjectCoefficient(alpha4_coeff);
-      ProductCoefficient alpha_g(alpha4_coeff, gCoeffScal);
-      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-      b.Assemble();}
-   if(at == 5){
-      Alpha5 alpha5_coeff(alpha); // max
-      alpha_gf.ProjectCoefficient(alpha5_coeff);
-      ProductCoefficient alpha_g(alpha5_coeff, gCoeffScal);
-      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-      b.Assemble();}
-   if(at == 6){
-      RHSgScal2 gCoeffScal2(v);
-      ConstantCoefficient alpha_const(alpha);
-      ProductCoefficient alpha_g2(alpha_const, gCoeffScal2);
-      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g2));
-      b.Assemble();}
-   if(at == 7){
-      RHSgScal3 gCoeffScal3(v);
-      ConstantCoefficient alpha_const(alpha);
-      ProductCoefficient alpha_g3(alpha_const, gCoeffScal3);
-      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g3));
-      b.Assemble();}
+   MFEM_VERIFY(alpha_typePAcoeff != NULL, "IGR alpha coefficient is not initialized.");
+   alpha_gf.ProjectCoefficient(*alpha_typePAcoeff);
+   ProductCoefficient alpha_g(*alpha_typePAcoeff, gCoeffScal);
+   b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+   b.Assemble();
    
    for (int z = 0; z < NE; z++)
    {

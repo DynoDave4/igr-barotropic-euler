@@ -747,7 +747,8 @@ int main(int argc, char *argv[])
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
-                                                order_q, useIGR);
+                                                order_q, useIGR,
+                                                alpha, alpha_type);
 
    socketstream vis_rho, vis_v, vis_e, vis_igr;
    char vishost[] = "localhost";
