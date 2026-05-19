@@ -328,24 +328,29 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    // (Position, Velocity, Specific Internal Energy).
    Vector* sptr = const_cast<Vector*>(&S);
    ParGridFunction v;
-   const int VsizeH1 = H1.GetVSize();
-   v.MakeRef(&H1, *sptr, VsizeH1);
+   
+   v.MakeRef(&H1, *sptr, H1Vsize);
    // Set dx_dt = v (explicit).
-   ParGridFunction dx;
+   ParGridFunction dx, digrp;
    dx.MakeRef(&H1, dS_dt, 0);
    dx = v;
-   SolveVelocity(S, dS_dt);
-   SolveEnergy(S, v, dS_dt);
+   SolveVelocityRHS(S, dS_dt);
+   SolveEnergyRHS(S, v, dS_dt);
+
+   SolveIGRPressRHS(S, v, dS_dt); //Currently does nothing but set to zero
+   digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
+   digrp = 0.0;
+
    qdata_is_current = false;
 }
 
-void LagrangianHydroOperator::SolveVelocity(const Vector &S,
+void LagrangianHydroOperator::SolveVelocityRHS(const Vector &S,
                                             Vector &dS_dt) const
 {
    UpdateQuadratureData(S);
    AssembleForceMatrix();
    // The monolithic BlockVector stores the unknown fields as follows:
-   // (Position, Velocity, Specific Internal Energy).
+   // (Position, Velocity, Specific Internal Energy, IGR Pressure).
    ParGridFunction dv;
    dv.MakeRef(&H1, dS_dt, H1Vsize);
    dv = 0.0;
@@ -452,14 +457,14 @@ void LagrangianHydroOperator::SolveVelocity(const Vector &S,
    }
 }
 
-void LagrangianHydroOperator::SolveEnergy(const Vector &S, const Vector &v,
+void LagrangianHydroOperator::SolveEnergyRHS(const Vector &S, const Vector &v,
                                           Vector &dS_dt) const
 {
    UpdateQuadratureData(S);
    AssembleForceMatrix();
 
    // The monolithic BlockVector stores the unknown fields as follows:
-   // (Position, Velocity, Specific Internal Energy).
+   // (Position, Velocity, Specific Internal Energy, IGR Pressure).
    ParGridFunction de;
    de.MakeRef(&L2, dS_dt, H1Vsize*2);
    de = 0.0;
@@ -529,6 +534,34 @@ void LagrangianHydroOperator::SolveEnergy(const Vector &S, const Vector &v,
    }
    delete e_source;
 }
+
+
+void LagrangianHydroOperator::SolveIGRPressRHS(const Vector &S, const Vector &v,
+                                          Vector &dS_dt) const
+{
+   UpdateQuadratureData(S);
+
+   // The monolithic BlockVector stores the unknown fields as follows:
+   // (Position, Velocity, Specific Internal Energy, IGR Pressure).
+   ParGridFunction digrp;
+   digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
+   digrp = 0.0;
+
+}
+
+void LagrangianHydroOperator::CalcIGRP(Vector &S, const Vector &v,
+                                          Vector &dS_dt) const
+{
+   UpdateQuadratureData(S);
+
+   // The monolithic BlockVector stores the unknown fields as follows:
+   // (Position, Velocity, Specific Internal Energy, IGR Pressure).
+   ParGridFunction igrp;
+   igrp.MakeRef(&H1_scal, S, H1Vsize*2 + L2Vsize);
+   igrp = 0.0;
+
+}
+
 
 void LagrangianHydroOperator::UpdateMesh(const Vector &S) const
 {
@@ -1475,10 +1508,10 @@ void RK2AvgSolver::Step(Vector &S, double &t, double &dt)
    // -- 1.
    // S is S0.
    hydro_oper->UpdateMesh(S);
-   hydro_oper->SolveVelocity(S, dS_dt);
+   hydro_oper->SolveVelocityRHS(S, dS_dt);
    // V = v0 + 0.5 * dt * dv_dt;
    add(v0, 0.5 * dt, dv_dt, V);
-   hydro_oper->SolveEnergy(S, V, dS_dt);
+   hydro_oper->SolveEnergyRHS(S, V, dS_dt);
    dx_dt = V;
 
    // -- 2.
@@ -1486,11 +1519,13 @@ void RK2AvgSolver::Step(Vector &S, double &t, double &dt)
    add(S0, 0.5 * dt, dS_dt, S);
    hydro_oper->ResetQuadratureData();
    hydro_oper->UpdateMesh(S);
-   hydro_oper->SolveVelocity(S, dS_dt);
+   hydro_oper->SolveVelocityRHS(S, dS_dt);
    // V = v0 + 0.5 * dt * dv_dt;
    add(v0, 0.5 * dt, dv_dt, V);
-   hydro_oper->SolveEnergy(S, V, dS_dt);
+   hydro_oper->SolveEnergyRHS(S, V, dS_dt);
    dx_dt = V;
+
+   std::cout << "IGR here not supported easy fix though" << std::endl;
 
    // -- 3.
    // S = S0 + dt * dS_dt.

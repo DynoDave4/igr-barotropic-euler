@@ -617,24 +617,24 @@ int main(int argc, char *argv[])
    // - 2 -> specific internal energy
    const int Vsize_l2 = L2FESpace.GetVSize();
    const int Vsize_h1 = H1FESpace.GetVSize();
-   Array<int> offset(4);
+   const int Vsize_igr = H1FEScalarSpace.GetVSize();
+   Array<int> offset(5);
    offset[0] = 0;
    offset[1] = offset[0] + Vsize_h1;
    offset[2] = offset[1] + Vsize_h1;
    offset[3] = offset[2] + Vsize_l2;
+   offset[4] = offset[3] + Vsize_igr;
    BlockVector S(offset, Device::GetMemoryType());
 
    // Define GridFunction objects for the position, velocity and specific
    // internal energy. There is no function for the density, as we can always
    // compute the density values given the current mesh position, using the
    // property of pointwise mass conservation.
-   ParGridFunction x_gf, v_gf, e_gf;
+   ParGridFunction x_gf, v_gf, e_gf, igr_gf;
    x_gf.MakeRef(&H1FESpace, S, offset[0]);
    v_gf.MakeRef(&H1FESpace, S, offset[1]);
    e_gf.MakeRef(&L2FESpace, S, offset[2]);
-
-   ParGridFunction igr_gf(&H1FEScalarSpace);
-   igr_gf = 0.0;
+   igr_gf.MakeRef(&H1FEScalarSpace, S, offset[3]);
 
    // Initialize x_gf using the starting mesh coordinates.
    pmesh.SetNodalGridFunction(&x_gf);
@@ -666,6 +666,7 @@ int main(int argc, char *argv[])
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
 
    double blast_position[] = {0.0, 0.0, 0.0};
+   if(!corner){for(int i=0; i<3; i++){blast_position[i] = 0.5;}}
    if (problem == 1)
    {
       // For the Sedov test, we use a delta function at the origin.
@@ -685,6 +686,15 @@ int main(int argc, char *argv[])
          return 1;
       }
    }
+   else if(problem == 9){
+	  // For the Sedov test, we use a delta function at the origin.
+	  ConstantCoefficient reg(e_reg);
+	  l2_one.ProjectCoefficient(reg);
+	  
+	  Gaussian smoothblast(variance, blast_energy);
+      l2_e.ProjectCoefficient(smoothblast);
+	  l2_e += l2_one;
+   }
    else
    {
       FunctionCoefficient e_coeff(e0);
@@ -693,6 +703,9 @@ int main(int argc, char *argv[])
    e_gf.ProjectGridFunction(l2_e);
    // Sync the data location of e_gf with its base, S
    e_gf.SyncAliasMemory(S);
+
+   igr_gf = 0.0;
+   igr_gf.SyncAliasMemory(S);
 
    // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
    // gamma values are projected on function that's constant on the moving mesh.
@@ -736,7 +749,7 @@ int main(int argc, char *argv[])
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q, useIGR);
 
-   socketstream vis_rho, vis_v, vis_e;
+   socketstream vis_rho, vis_v, vis_e, vis_igr;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
@@ -753,6 +766,7 @@ int main(int argc, char *argv[])
       vis_rho.precision(8);
       vis_v.precision(8);
       vis_e.precision(8);
+      vis_igr.precision(8);
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
       int offx = Ww+10; // window offsets
@@ -767,6 +781,11 @@ int main(int argc, char *argv[])
       Wx += offx;
       hydrodynamics::VisualizeField(vis_e, vishost, visport, e_gf,
                                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
+      Wx += offx;
+      if(useIGR){
+            hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
+                                       "IGR", Wx, Wy, Ww, Wh);
+	   }
    }
 
    // Save data for VisIt visualization.
@@ -921,7 +940,7 @@ int main(int argc, char *argv[])
       x_gf.SyncAliasMemory(S);
       v_gf.SyncAliasMemory(S);
       e_gf.SyncAliasMemory(S);
-      //igr_gf.SyncAliasMemory(S);
+      igr_gf.SyncAliasMemory(S);
 
       // Make sure that the mesh corresponds to the new solution state. This is
       // needed, because some time integrators use different S-type vectors
@@ -1000,6 +1019,11 @@ int main(int argc, char *argv[])
                                           "Specific Internal Energy",
                                           Wx, Wy, Ww,Wh);
             Wx += offx;
+            if(useIGR){
+               hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
+                                       "IGR", Wx, Wy, Ww, Wh);
+	            Wx += offx;
+	         }
          }
 
          if (visit)

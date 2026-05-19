@@ -103,7 +103,7 @@ public:
 class LagrangianHydroOperator : public TimeDependentOperator
 {
 protected:
-   ParFiniteElementSpace H1_scal;
+   ParFiniteElementSpace &H1_scal;
    bool useIGR = true;
    mutable CGSolver cg_igr;
    mutable HypreBoomerAMG amg_prec;
@@ -214,8 +214,10 @@ public:
    virtual MemoryClass GetMemoryClass() const
    { return Device::GetMemoryClass(); }
 
-   void SolveVelocity(const Vector &S, Vector &dS_dt) const;
-   void SolveEnergy(const Vector &S, const Vector &v, Vector &dS_dt) const;
+   void SolveVelocityRHS(const Vector &S, Vector &dS_dt) const;
+   void SolveEnergyRHS(const Vector &S, const Vector &v, Vector &dS_dt) const;
+   void SolveIGRPressRHS(const Vector &S, const Vector &v, Vector &dS_dt) const;
+   void CalcIGRP(Vector &S, const Vector &v, Vector &dS_dt) const;
    void UpdateMesh(const Vector &S) const;
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
