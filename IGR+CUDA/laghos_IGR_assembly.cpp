@@ -972,6 +972,74 @@ void ForcePAOperator::MultTranspose(const Vector &x, Vector &y) const
    else { y = X; }
 }
 
+
+
+IGRPAOperator::IGRPAOperator(ParFiniteElementSpace &pfes,
+                               const IntegrationRule &ir,
+                               Coefficient &m,
+                               Coefficient &at) :
+   Operator(pfes.GetTrueVSize()),
+   mass(m),
+   alpha_type(at),
+   inv_mass(1.0, mass),
+   alpha_over_mass(alpha_type, mass),
+   comm(pfes.GetParMesh()->GetComm()),
+   dim(pfes.GetMesh()->Dimension()),
+   NE(pfes.GetMesh()->GetNE()),
+   vsize(pfes.GetVSize()),
+   pabf(&pfes),
+   ess_tdofs_count(0),
+   ess_tdofs(0)
+{
+   pabf.SetAssemblyLevel(AssemblyLevel::PARTIAL);
+   pabf.AddDomainIntegrator(new mfem::MassIntegrator(inv_mass, &ir));
+   pabf.AddDomainIntegrator(new mfem::DiffusionIntegrator(alpha_over_mass, &ir));
+}
+
+void IGRPAOperator::Assemble() const
+{
+   LHS.Clear();
+   pabf.Update();
+   pabf.Assemble();
+   pabf.FormSystemMatrix(mfem::Array<int>(), LHS);
+}
+
+void IGRPAOperator::SetEssentialTrueDofs(Array<int> &dofs)
+{
+   ess_tdofs_count = dofs.Size();
+   if (ess_tdofs.Size() == 0)
+   {
+      int ess_tdofs_sz;
+      MPI_Allreduce(&ess_tdofs_count,&ess_tdofs_sz, 1, MPI_INT, MPI_SUM, comm);
+      MFEM_ASSERT(ess_tdofs_sz > 0, "ess_tdofs_sz should be positive!");
+      ess_tdofs.SetSize(ess_tdofs_sz);
+   }
+   if (ess_tdofs_count == 0) { return; }
+   ess_tdofs = dofs;
+}
+
+void IGRPAOperator::EliminateRHS(Vector &b) const
+{
+   if (ess_tdofs_count > 0) { b.SetSubVector(ess_tdofs, 0.0); }
+}
+
+void IGRPAOperator::Mult(const Vector &x, Vector &y) const
+{
+   Assemble();
+   LHS->Mult(x, y);
+   if (ess_tdofs_count > 0) { y.SetSubVector(ess_tdofs, 0.0); }
+}
+
+void IGRPAOperator::AssembleDiagonal(Vector &diag) const
+{
+   Assemble();
+   LHS->AssembleDiagonal(diag);
+}
+
+
+
+
+
 } // namespace hydrodynamics
 
 } // namespace mfem

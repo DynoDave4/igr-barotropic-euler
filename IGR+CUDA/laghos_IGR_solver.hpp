@@ -25,6 +25,7 @@
 namespace mfem
 {
 
+
 namespace hydrodynamics
 {
 
@@ -114,6 +115,10 @@ protected:
    double visc_const = 0.0001;
    int visc_type = 3;
    mutable Vector Bigr, Xigr;
+   IGRPAOperator *IGRMassPA;
+   Coefficient *massPAcoeff, *alpha_typePAcoeff;
+   RatioCoefficient *inv_mass, *alpha_over_mass;
+   mutable ParBilinearForm Migr;
 
    ParFiniteElementSpace &H1, &L2;
    mutable ParFiniteElementSpace H1c;
@@ -158,7 +163,7 @@ protected:
    // Mass matrices done through partial assembly:
    // velocity (coupled H1 assembly) and energy (local L2 assemblies).
    MassPAOperator *VMassPA, *EMassPA;
-   OperatorJacobiSmoother *VMassPA_Jprec;
+   OperatorJacobiSmoother *VMassPA_Jprec, *IGRMassPA_Jprec;
    // Linear solver for energy.
    CGSolver CG_VMass, CG_EMass;
    mutable TimingData timer;
@@ -181,6 +186,7 @@ protected:
 
    void UpdateQuadratureData(const Vector &S) const;
    void AssembleForceMatrix() const;
+   void AssembleIGRMassMatrix() const;
 
 public:
    LagrangianHydroOperator(const int size,

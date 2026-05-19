@@ -365,6 +365,25 @@ class ScalInv : public Coefficient //Takes in two terms
 namespace hydrodynamics
 {
 
+class CurrentDensityCoefficient : public Coefficient
+{
+private:
+   const QuadratureData &qdata;
+   const int nqp;
+
+public:
+   CurrentDensityCoefficient(const QuadratureData &qd, int nqp_)
+      : qdata(qd), nqp(nqp_) { }
+
+   virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+      const double detJ = T.Jacobian().Det();
+      const int idx = T.ElementNo*nqp + ip.index;
+      return qdata.rho0DetJ0w(idx) / detJ / ip.weight;
+   }
+};
+
 void VisualizeField(socketstream &sock, const char *vishost, int visport,
                     ParGridFunction &gf, const char *title,
                     int x, int y, int w, int h, bool vec)
@@ -468,6 +487,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    cg_rel_tol(cgt), cg_max_iter(cgiter),ftz_tol(ftz),
    gamma_gf(gamma_gf),
    Mv(&H1), Mv_spmat_copy(),
+   Migr(&H1_scal),
    Me(l2dofs_cnt, l2dofs_cnt, NE),
    Me_inv(l2dofs_cnt, l2dofs_cnt, NE),
    ir(IntRules.Get(pmesh->GetElementBaseGeometry(0),
@@ -477,8 +497,10 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    qdata_is_current(false),
    forcemat_is_assembled(false),
    Force(&L2, &H1),
-   ForcePA(nullptr), VMassPA(nullptr), EMassPA(nullptr),
-   VMassPA_Jprec(nullptr),
+   ForcePA(nullptr), VMassPA(nullptr), EMassPA(nullptr), IGRMassPA(nullptr),
+   massPAcoeff(nullptr), alpha_typePAcoeff(nullptr),
+   inv_mass(nullptr), alpha_over_mass(nullptr),
+   VMassPA_Jprec(nullptr), IGRMassPA_Jprec(nullptr),
    CG_VMass(H1.GetParMesh()->GetComm()),
    CG_EMass(L2.GetParMesh()->GetComm()),
    timer(p_assembly ? L2TVSize : 1),
@@ -494,8 +516,16 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
 {
    cg_igr.iterative_mode = true;
    cg_igr.SetRelTol(1e-6);
+   cg_igr.SetAbsTol(0.0);
    cg_igr.SetPrintLevel(-1);
    amg_prec.SetPrintLevel(0);
+   jacobi_prec.SetType(HypreSmoother::Jacobi, 1);
+
+   //For now we will just do alpha type 3
+   alpha_typePAcoeff = new Alpha3(alpha);
+   massPAcoeff = new CurrentDensityCoefficient(qdata, ir.GetNPoints());
+   inv_mass = new RatioCoefficient(1.0, *massPAcoeff);
+   alpha_over_mass = new RatioCoefficient(*alpha_typePAcoeff, *massPAcoeff);
 	
    block_offsets[0] = 0;
    block_offsets[1] = block_offsets[0] + H1Vsize; //x
@@ -511,6 +541,11 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
       ForcePA = new ForcePAOperator(qdata, H1, L2, ir);
       VMassPA = new MassPAOperator(H1c, ir, rho0_coeff);
       EMassPA = new MassPAOperator(L2, ir, rho0_coeff);
+
+      //New IGR PA operator
+      IGRMassPA = new IGRPAOperator(H1_scal, ir, *massPAcoeff, *alpha_typePAcoeff);
+      IGRMassPA_Jprec = new OperatorJacobiSmoother();
+
       // Inside the above constructors for mass, there is reordering of the mesh
       // nodes which is performed on the host. Since the mesh nodes are a
       // subvector, so we need to sync with the rest of the base vector (which
@@ -552,6 +587,11 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
       Mv.AddDomainIntegrator(vmi);
       Mv.Assemble();
       Mv_spmat_copy = Mv.SpMat();
+
+      //Migr is not constant in time
+      Migr.AddDomainIntegrator(new mfem::MassIntegrator(*inv_mass, &ir));
+      Migr.AddDomainIntegrator(new mfem::DiffusionIntegrator(*alpha_over_mass, &ir));
+
    }
 
    // Values of rho0DetJ0 and Jac0inv at all quadrature points.
@@ -615,6 +655,10 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
       CG_EMass.SetAbsTol(0.0);
       CG_EMass.SetMaxIter(cg_max_iter);
       CG_EMass.SetPrintLevel(-1);
+
+      //cg_igr.SetOperator(*EMassPA);
+      cg_igr.iterative_mode = true;
+      cg_igr.SetPrintLevel(-1);
    }
    else
    {
@@ -637,7 +681,13 @@ LagrangianHydroOperator::~LagrangianHydroOperator()
       delete VMassPA;
       delete VMassPA_Jprec;
       delete ForcePA;
+      delete IGRMassPA;
+      delete IGRMassPA_Jprec;
    }
+   delete alpha_over_mass;
+   delete inv_mass;
+   delete massPAcoeff;
+   delete alpha_typePAcoeff;
 }
 
 void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
@@ -784,7 +834,7 @@ void LagrangianHydroOperator::SolveEnergyRHS(const Vector &S, const Vector &v,
                                           Vector &dS_dt) const
 {
    UpdateQuadratureData(S);
-   AssembleForceMatrix();
+   AssembleForceMatrix();    //Returns immediately if PA
 
    // The monolithic BlockVector stores the unknown fields as follows:
    // (Position, Velocity, Specific Internal Energy, IGR Pressure).
@@ -874,9 +924,6 @@ void LagrangianHydroOperator::SolveIGRPressRHS(const Vector &S, const Vector &v,
 
 void LagrangianHydroOperator::CalcIGRP(Vector &S) const
 {
-   // Do NOT call UpdateQuadratureData(S) here.
-   // This function is called from UpdateQuadratureData after qdata is stale.
-
    ParGridFunction x, v, e, igr_gf;
 
    x.MakeRef(&H1, S, 0);
@@ -891,84 +938,66 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
       return;
    }
 
+   const int nqp = ir.GetNPoints();
+   QuadratureSpace qs(pmesh, ir.GetOrder());
+   QuadratureFunction rho_q(&qs);
+   //MFEM_VERIFY(rho_q.Size() == NE*ir.GetOrder(), "Size mismatch!");
+   if(Mpi::Root()){
+      //std::cout << "ir order " << ir.GetOrder() << std::endl;
+      //std::cout << "rho_q size " << rho_q.Size() << std::endl;
+      //std::cout << "NE " << NE << std::endl;
+   }
+
    LAGHOS_DEVICE_SYNC;
    timer.sw_igr.Start();
 
-   const int nqp = ir.GetNPoints();
-
-   QuadratureSpace qs(pmesh, ir.GetOrder());
-   QuadratureFunction rho_q(&qs), rho_q_inv(&qs);
-   QuadratureFunction rho_q_alpha_inv(&qs), alpha_q(&qs);
-
+   //Set up linear form (RHS)
    ParLinearForm b(&H1_scal);
-   ParBilinearForm a(&H1_scal);
-
    RHSgScal gCoeffScal(v);
-
-   if (at == 1)
-   {
+   
+   if(at == 1){
       ConstantCoefficient alpha_const(alpha);
       alpha_gf.ProjectCoefficient(alpha_const);
-
       ProductCoefficient alpha_g(alpha_const, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-   }
-   else if (at == 2)
-   {
+      b.Assemble(); }
+   if(at == 2){
       Alpha2 alpha2_coeff(x, alpha);
       alpha_gf.ProjectCoefficient(alpha2_coeff);
-
       ProductCoefficient alpha_g(alpha2_coeff, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-   }
-   else if (at == 3)
-   {
+      b.Assemble(); }
+   if(at == 3){
       Alpha3 alpha3_coeff(alpha);
-      alpha_gf.ProjectCoefficient(alpha3_coeff);
-
+      alpha_gf.ProjectCoefficient(alpha3_coeff); 
       ProductCoefficient alpha_g(alpha3_coeff, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-   }
-   else if (at == 4)
-   {
-      Alpha4 alpha4_coeff(alpha);
+      b.Assemble();}
+   if(at == 4){
+      Alpha4 alpha4_coeff(alpha); // min
       alpha_gf.ProjectCoefficient(alpha4_coeff);
-
       ProductCoefficient alpha_g(alpha4_coeff, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-   }
-   else if (at == 5)
-   {
-      Alpha5 alpha5_coeff(alpha);
+      b.Assemble();}
+   if(at == 5){
+      Alpha5 alpha5_coeff(alpha); // max
       alpha_gf.ProjectCoefficient(alpha5_coeff);
-
       ProductCoefficient alpha_g(alpha5_coeff, gCoeffScal);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
-   }
-   else if (at == 6)
-   {
+      b.Assemble();}
+   if(at == 6){
       RHSgScal2 gCoeffScal2(v);
       ConstantCoefficient alpha_const(alpha);
-
       ProductCoefficient alpha_g2(alpha_const, gCoeffScal2);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g2));
-   }
-   else if (at == 7)
-   {
+      b.Assemble();}
+   if(at == 7){
       RHSgScal3 gCoeffScal3(v);
       ConstantCoefficient alpha_const(alpha);
-
       ProductCoefficient alpha_g3(alpha_const, gCoeffScal3);
       b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g3));
-   }
-
-   b.Assemble();
-
-   if (at < 6)
-   {
-      alpha_q.ProjectGridFunction(alpha_gf);
-   }
-
+      b.Assemble();}
+   
    for (int z = 0; z < NE; z++)
    {
       ElementTransformation *T = H1.GetElementTransformation(z);
@@ -978,66 +1007,65 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
          const IntegrationPoint &ip = ir.IntPoint(q);
          T->SetIntPoint(&ip);
 
-         const double detJ = T->Jacobian().Det();
-         const int idx = z*nqp + q;
-
+         const double detJ = (T->Jacobian()).Det();
+         
+         const int idx = z * nqp + q;
          const double rho = qdata.rho0DetJ0w(idx) / detJ / ip.weight;
-
-         rho_q(idx)     = rho;
-         rho_q_inv(idx) = 1.0 / rho;
-
-         if (at < 6)
-         {
-            rho_q_alpha_inv(idx) = alpha_q(idx) / rho;
-         }
+         rho_q(idx)         = rho;
       }
+   } 
+   
+   double rho_min = rho_q.Min();
+   double rho_max = rho_q.Max();
+   if(rho_min < 0.0 && Mpi::Root()){
+	   mfem::out << "rho in [" << rho_min << ", " << rho_max << "]\n";
    }
+   
 
-   QuadratureFunctionCoefficient RhoInvCoeff(rho_q_inv);
-   a.AddDomainIntegrator(new MassIntegrator(RhoInvCoeff));
-
-   if (at < 6)
+   //Set up bilinear form (LHS)
+   HypreParMatrix *A = NULL;
+   if (p_assembly)
    {
-      QuadratureFunctionCoefficient AlphaRhoInvCoeff(rho_q_alpha_inv);
-      a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInvCoeff));
+      MFEM_VERIFY(IGRMassPA != NULL, "IGR partial assembly operator is not initialized.");
+      MFEM_VERIFY(IGRMassPA_Jprec != NULL, "IGR Jacobi preconditioner is not initialized.");
+      IGRMassPA_Jprec->SetOperator(*IGRMassPA);
+      cg_igr.SetPreconditioner(*IGRMassPA_Jprec);
+      cg_igr.SetOperator(*IGRMassPA);
    }
-   else if (at == 6)
+   else
    {
-      Alpha6 alpha6_coeff(alpha, dim);
-      ScalarMatrixProductCoefficient MatAlpha(RhoInvCoeff, alpha6_coeff);
-      a.AddDomainIntegrator(new DiffusionIntegrator(MatAlpha));
-   }
-   else if (at == 7)
-   {
-      Alpha7 alpha7_coeff(alpha, dim);
-      ScalarMatrixProductCoefficient MatAlpha(RhoInvCoeff, alpha7_coeff);
-      a.AddDomainIntegrator(new DiffusionIntegrator(MatAlpha));
-   }
+      AssembleIGRMassMatrix();
+      A = Migr.ParallelAssemble();
 
-   a.Assemble();
-   a.Finalize();
+      cg_igr.SetOperator(*A);
+      //amg_prec.SetOperator(*A);         // reset AMG for new A
+      //cg_igr.SetPreconditioner(amg_prec);
 
-   HypreParMatrix *A = a.ParallelAssemble();
+      jacobi_prec.SetOperator(*A);
+      cg_igr.SetPreconditioner(jacobi_prec);
+   }
 
    igr_gf.GetTrueDofs(Xigr);
    b.ParallelAssemble(Bigr);
-
    Bigr *= -1.0;
 
-   cg_igr.SetOperator(*A);
-
-   jacobi_prec.SetOperator(*A);
-   cg_igr.SetPreconditioner(jacobi_prec);
-
+   cg_igr.iterative_mode = true;
+   cg_igr.SetRelTol(1e-6);
+   cg_igr.SetAbsTol(0.0);
+   cg_igr.SetPrintLevel(-1);
    cg_igr.SetMaxIter(5);
+   if(t < 0.001){cg_igr.SetMaxIter(500);}
+
+   LAGHOS_DEVICE_SYNC;
    cg_igr.Mult(Bigr, Xigr);
-
    delete A;
-
+   
    igr_gf.SetFromTrueDofs(Xigr);
-
-   // Critical because igr_gf aliases S.
    igr_gf.SyncAliasMemory(S);
+
+   // Important: after host solve updates S, let later CUDA PA reads see it.
+   S.ReadWrite();
+   igr_gf.ReadWrite();
 
    LAGHOS_DEVICE_SYNC;
    timer.sw_igr.Stop();
@@ -1953,6 +1981,14 @@ void LagrangianHydroOperator::AssembleForceMatrix() const
    LAGHOS_CALI_MARK_END("LagrangianHydroOperator-AssembleForceMatrix");
    timer.sw_force.Stop();
    forcemat_is_assembled = true;
+}
+
+void LagrangianHydroOperator::AssembleIGRMassMatrix() const
+{
+   if (p_assembly) { return; }
+   Migr.Update();
+   Migr.Assemble();
+   Migr.Finalize();
 }
 
 } // namespace hydrodynamics

@@ -130,6 +130,31 @@ public:
    const ParBilinearForm &GetBF() const { return pabf; }
 };
 
+// Performs partial assembly for the igr "mass" matrix (LHS of elliptic solve).
+// Initially let's just get the alpha type 3 set up
+class IGRPAOperator : public Operator
+{
+private:
+   Coefficient &mass, &alpha_type;
+   RatioCoefficient inv_mass, alpha_over_mass;
+
+   const MPI_Comm comm;
+   const int dim, NE, vsize;
+   mutable ParBilinearForm pabf;
+   int ess_tdofs_count;
+   Array<int> ess_tdofs;
+   mutable OperatorPtr LHS;
+   void Assemble() const;
+public:
+   IGRPAOperator(ParFiniteElementSpace&, const IntegrationRule&, Coefficient&, Coefficient&);
+   virtual void Mult(const Vector&, Vector&) const;
+   virtual void AssembleDiagonal(Vector&) const;
+   void MultFull(const Vector &x, Vector &y) const { Assemble(); LHS->Mult(x, y); }
+   virtual void SetEssentialTrueDofs(Array<int>&);
+   virtual void EliminateRHS(Vector&) const;
+   const ParBilinearForm &GetBF() const { return pabf; }
+};
+
 } // namespace hydrodynamics
 
 } // namespace mfem

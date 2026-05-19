@@ -196,7 +196,7 @@ int main(int argc, char *argv[])
    bool enable_nc = true;
 
    //New IGR variables
-   double alpha = 0.001;
+   double alpha = 4.0;
    double stallIGR = -0.3;
    double e_reg = 0.0;
    bool useIGR = true;
