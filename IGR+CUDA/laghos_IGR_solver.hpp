@@ -40,7 +40,7 @@ struct TimingData
 {
    // Total times for all major computations:
    // CG solves (H1 and L2) / force RHS assemblies / quadrature computations.
-   StopWatch sw_cgH1, sw_cgL2, sw_force, sw_qdata;
+   StopWatch sw_cgH1, sw_cgL2, sw_force, sw_qdata, sw_igr;
 
    // Store the number of dofs of the corresponding local CG
    const HYPRE_Int L2dof;
@@ -217,7 +217,7 @@ public:
    void SolveVelocityRHS(const Vector &S, Vector &dS_dt) const;
    void SolveEnergyRHS(const Vector &S, const Vector &v, Vector &dS_dt) const;
    void SolveIGRPressRHS(const Vector &S, const Vector &v, Vector &dS_dt) const;
-   void CalcIGRP(Vector &S, const Vector &v, Vector &dS_dt) const;
+   void CalcIGRP(Vector &S) const;
    void UpdateMesh(const Vector &S) const;
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.

@@ -661,7 +661,7 @@ int main(int argc, char *argv[])
    FunctionCoefficient rho0_coeff(rho0);
    L2_FECollection l2_fec(order_e, dim);
    ParFiniteElementSpace l2_fes(&pmesh, &l2_fec);
-   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes);
+   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes), l2_one(&l2_fes);
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
 

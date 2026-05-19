@@ -37,6 +37,331 @@
 namespace mfem
 {
 
+class RHSgScal : public Coefficient //Takes in one term
+{
+   private:
+      GridFunction &u; // vector-valued GridFunction
+   public:
+      RHSgScal(GridFunction &u_) : u(u_) {}
+
+   virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
+   {
+	  T.SetIntPoint(&ip);
+	  int dim = u.FESpace()->GetVDim();
+
+      DenseMatrix Jac(dim, dim);
+      u.GetVectorGradient(T, Jac);
+
+      DenseMatrix JacSqd(dim, dim);
+      JacSqd = 0.0; AddMult(Jac, Jac, JacSqd);	
+	  
+	  double trace = 0.0, sqtrace = 0.0;
+
+      for(int i = 0; i<dim; i++){ 
+	     trace += Jac(i,i);
+         sqtrace += JacSqd(i,i);		 
+	  }
+		  
+      return trace*trace + sqtrace;
+   }
+};
+
+class RHSgScal2 : public Coefficient
+{
+private:
+   GridFunction &u;
+
+public:
+   RHSgScal2(GridFunction &u_) : u(u_) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+      int dim = u.FESpace()->GetVDim();
+
+      DenseMatrix Du(dim);
+      u.GetVectorGradient(T, Du);
+
+      const DenseMatrix &J = T.Jacobian();
+
+      DenseMatrix A(dim);
+      Mult(J, Du, A);
+
+      // trace(A)
+      double trA = 0.0;
+      for (int i = 0; i < dim; i++){ trA += A(i,i); }
+
+      // trace(A A)
+      DenseMatrix AA(dim);
+      Mult(A, A, AA);
+
+      double trAA = 0.0;
+      for (int i = 0; i < dim; i++){ trAA += AA(i,i); }
+
+      return trA*trA + trAA;
+   }
+};
+
+class RHSgScal3 : public Coefficient
+{
+private:
+   GridFunction &u;
+
+public:
+   RHSgScal3(GridFunction &u_) : u(u_) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+      int dim = u.FESpace()->GetVDim();
+
+      DenseMatrix Du(dim);
+      u.GetVectorGradient(T, Du);
+
+      const DenseMatrix &J = T.Jacobian();
+      DenseMatrix JT;
+      JT.Transpose(J);
+
+      DenseMatrix A(dim);
+      Mult(JT, Du, A);
+
+      // trace(A)
+      double trA = 0.0;
+      for (int i = 0; i < dim; i++){ trA += A(i,i); }
+
+      // trace(A A)
+      DenseMatrix AA(dim);
+      Mult(A, A, AA);
+
+      double trAA = 0.0;
+      for (int i = 0; i < dim; i++){ trAA += AA(i,i); }
+
+      return trA*trA + trAA;
+   }
+};
+
+
+
+class Alpha2 : public Coefficient
+{
+private:
+   GridFunction &x_gf;
+   double alpha;
+
+public:
+   Alpha2(GridFunction &x_, double alpha_)
+      : x_gf(x_), alpha(alpha_) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      Vector x;
+      x_gf.GetVectorValue(T, ip, x);
+
+      double r2 = 0.0;
+      for (int d = 0; d < x.Size(); d++)
+      {
+         r2 += x(d) * x(d);
+      }
+
+      return alpha * (1+10*pow(5,-100*(x(0)-0.5)*(x(0)-0.5)));
+   }
+};
+
+class Alpha3 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha3(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      // Set integration point (needed for Jacobian)
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const double detJ = J.Det();
+      const int dim = J.Height(); // spatial dimension
+
+      // Compute h^2 ~ (volume)^(2/d)
+      const double h2 = pow(fabs(detJ), 2.0 / dim);
+
+      //std::cout <<  alpha * h2 << ", " << alpha << std::endl;
+
+      return alpha * h2;
+   }
+};
+
+class Alpha4 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha4(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Form G = J^T J
+      DenseMatrix G(dim);
+      MultAtB(J, J, G);
+
+      double eig_val_data[3] = {0.0, 0.0, 0.0};
+      double eig_vec_data[9] = {0.0};
+
+      if (dim == 1)
+      {
+         eig_val_data[0] = G(0,0);
+         eig_vec_data[0] = 1.0;
+      }
+      else
+      {
+         G.CalcEigenvalues(eig_val_data, eig_vec_data);
+      }
+
+      // Extract min eigenvalue
+      double val = eig_val_data[0];
+      for (int i = 1; i < dim; i++)
+      {      val = std::min(val, eig_val_data[i]);      }
+
+      return alpha * val;
+   }
+};
+
+class Alpha5 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha5(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Form G = J^T J
+      DenseMatrix G(dim);
+      MultAtB(J, J, G);
+
+      double eig_val_data[3] = {0.0, 0.0, 0.0};
+      double eig_vec_data[9] = {0.0};
+
+      if (dim == 1)
+      {
+         eig_val_data[0] = G(0,0);
+         eig_vec_data[0] = 1.0;
+      }
+      else
+      {
+         G.CalcEigenvalues(eig_val_data, eig_vec_data);
+      }
+
+      // Extract max eigenvalue
+      double val = eig_val_data[0];
+      for (int i = 1; i < dim; i++)
+      {      val = std::max(val, eig_val_data[i]);      }
+
+      return alpha * val;
+   }
+};
+
+class Alpha6 : public MatrixCoefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha6(double a, int dim) : MatrixCoefficient(dim), alpha(a) {}
+
+   virtual void Eval(DenseMatrix &M,
+                     ElementTransformation &T,
+                     const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Resize output matrix
+      M.SetSize(dim);
+
+      // Compute C = J^T J
+      MultAtB(J, J, M);
+
+      // Scale by alpha
+      M *= alpha;
+
+      //std::cout << J(0,0) << ", " << M(0,0) << ", " << alpha << std::endl;
+   }
+};
+
+class Alpha7 : public MatrixCoefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha7(double a, int dim) : MatrixCoefficient(dim), alpha(a) {}
+
+   virtual void Eval(DenseMatrix &M,
+                     ElementTransformation &T,
+                     const IntegrationPoint &ip)
+   {
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const int dim = J.Height();
+
+      // Resize output matrix
+      M.SetSize(dim);
+
+      // Compute C = J^T J
+      MultABt(J, J, M);
+
+      // Scale by alpha
+      M *= alpha;
+
+      //std::cout << J(0,0) << ", " << M(0,0) << ", " << alpha << std::endl;
+   }
+};
+
+
+// Try anisotropic alpha where we put it inside the trace and alpha <-> G4
+// alpha (tr^2[Du] + tr[Du^2]) <-> tr^2[sqrt(alpha) Du] + tr(sqrt(alpha)[Du])^2
+
+
+class ScalInv : public Coefficient //Takes in two terms
+{
+   private:
+      GridFunction &u; // vector-valued GridFunction
+   public:
+      ScalInv(GridFunction &u_) : u(u_) {}
+
+   virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
+   {  
+      return 1.0 / u.GetValue(T, ip);
+   }
+};
+
+
+
+
 namespace hydrodynamics
 {
 
@@ -178,9 +503,6 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    block_offsets[3] = block_offsets[2] + L2Vsize; //igr_p
    one.UseDevice(true);
    one = 1.0;
-
-   Bigr.UseDevice(true);
-   Xigr.UseDevice(true);
 
    if (p_assembly)
    {
@@ -324,6 +646,7 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    // needed only because some mfem time integrators don't update the solution
    // vector at every intermediate stage (hence they don't change the mesh).
    UpdateMesh(S);
+   
    // The monolithic BlockVector stores the unknown fields as follows:
    // (Position, Velocity, Specific Internal Energy).
    Vector* sptr = const_cast<Vector*>(&S);
@@ -337,9 +660,9 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    SolveVelocityRHS(S, dS_dt);
    SolveEnergyRHS(S, v, dS_dt);
 
-   SolveIGRPressRHS(S, v, dS_dt); //Currently does nothing but set to zero
+   //SolveIGRPressRHS(S, v, dS_dt); //Currently does nothing but set to zero
    digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
-   digrp = 0.0;
+   digrp = 0.0;   
 
    qdata_is_current = false;
 }
@@ -549,17 +872,175 @@ void LagrangianHydroOperator::SolveIGRPressRHS(const Vector &S, const Vector &v,
 
 }
 
-void LagrangianHydroOperator::CalcIGRP(Vector &S, const Vector &v,
-                                          Vector &dS_dt) const
+void LagrangianHydroOperator::CalcIGRP(Vector &S) const
 {
-   UpdateQuadratureData(S);
+   // Do NOT call UpdateQuadratureData(S) here.
+   // This function is called from UpdateQuadratureData after qdata is stale.
 
-   // The monolithic BlockVector stores the unknown fields as follows:
-   // (Position, Velocity, Specific Internal Energy, IGR Pressure).
-   ParGridFunction igrp;
-   igrp.MakeRef(&H1_scal, S, H1Vsize*2 + L2Vsize);
-   igrp = 0.0;
+   ParGridFunction x, v, e, igr_gf;
 
+   x.MakeRef(&H1, S, 0);
+   v.MakeRef(&H1, S, H1Vsize);
+   e.MakeRef(&L2, S, 2*H1Vsize);
+   igr_gf.MakeRef(&H1_scal, S, 2*H1Vsize + L2Vsize);
+
+   if (!useIGR)
+   {
+      igr_gf = 0.0;
+      igr_gf.SyncAliasMemory(S);
+      return;
+   }
+
+   LAGHOS_DEVICE_SYNC;
+   timer.sw_igr.Start();
+
+   const int nqp = ir.GetNPoints();
+
+   QuadratureSpace qs(pmesh, ir.GetOrder());
+   QuadratureFunction rho_q(&qs), rho_q_inv(&qs);
+   QuadratureFunction rho_q_alpha_inv(&qs), alpha_q(&qs);
+
+   ParLinearForm b(&H1_scal);
+   ParBilinearForm a(&H1_scal);
+
+   RHSgScal gCoeffScal(v);
+
+   if (at == 1)
+   {
+      ConstantCoefficient alpha_const(alpha);
+      alpha_gf.ProjectCoefficient(alpha_const);
+
+      ProductCoefficient alpha_g(alpha_const, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+   }
+   else if (at == 2)
+   {
+      Alpha2 alpha2_coeff(x, alpha);
+      alpha_gf.ProjectCoefficient(alpha2_coeff);
+
+      ProductCoefficient alpha_g(alpha2_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+   }
+   else if (at == 3)
+   {
+      Alpha3 alpha3_coeff(alpha);
+      alpha_gf.ProjectCoefficient(alpha3_coeff);
+
+      ProductCoefficient alpha_g(alpha3_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+   }
+   else if (at == 4)
+   {
+      Alpha4 alpha4_coeff(alpha);
+      alpha_gf.ProjectCoefficient(alpha4_coeff);
+
+      ProductCoefficient alpha_g(alpha4_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+   }
+   else if (at == 5)
+   {
+      Alpha5 alpha5_coeff(alpha);
+      alpha_gf.ProjectCoefficient(alpha5_coeff);
+
+      ProductCoefficient alpha_g(alpha5_coeff, gCoeffScal);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+   }
+   else if (at == 6)
+   {
+      RHSgScal2 gCoeffScal2(v);
+      ConstantCoefficient alpha_const(alpha);
+
+      ProductCoefficient alpha_g2(alpha_const, gCoeffScal2);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g2));
+   }
+   else if (at == 7)
+   {
+      RHSgScal3 gCoeffScal3(v);
+      ConstantCoefficient alpha_const(alpha);
+
+      ProductCoefficient alpha_g3(alpha_const, gCoeffScal3);
+      b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g3));
+   }
+
+   b.Assemble();
+
+   if (at < 6)
+   {
+      alpha_q.ProjectGridFunction(alpha_gf);
+   }
+
+   for (int z = 0; z < NE; z++)
+   {
+      ElementTransformation *T = H1.GetElementTransformation(z);
+
+      for (int q = 0; q < nqp; q++)
+      {
+         const IntegrationPoint &ip = ir.IntPoint(q);
+         T->SetIntPoint(&ip);
+
+         const double detJ = T->Jacobian().Det();
+         const int idx = z*nqp + q;
+
+         const double rho = qdata.rho0DetJ0w(idx) / detJ / ip.weight;
+
+         rho_q(idx)     = rho;
+         rho_q_inv(idx) = 1.0 / rho;
+
+         if (at < 6)
+         {
+            rho_q_alpha_inv(idx) = alpha_q(idx) / rho;
+         }
+      }
+   }
+
+   QuadratureFunctionCoefficient RhoInvCoeff(rho_q_inv);
+   a.AddDomainIntegrator(new MassIntegrator(RhoInvCoeff));
+
+   if (at < 6)
+   {
+      QuadratureFunctionCoefficient AlphaRhoInvCoeff(rho_q_alpha_inv);
+      a.AddDomainIntegrator(new DiffusionIntegrator(AlphaRhoInvCoeff));
+   }
+   else if (at == 6)
+   {
+      Alpha6 alpha6_coeff(alpha, dim);
+      ScalarMatrixProductCoefficient MatAlpha(RhoInvCoeff, alpha6_coeff);
+      a.AddDomainIntegrator(new DiffusionIntegrator(MatAlpha));
+   }
+   else if (at == 7)
+   {
+      Alpha7 alpha7_coeff(alpha, dim);
+      ScalarMatrixProductCoefficient MatAlpha(RhoInvCoeff, alpha7_coeff);
+      a.AddDomainIntegrator(new DiffusionIntegrator(MatAlpha));
+   }
+
+   a.Assemble();
+   a.Finalize();
+
+   HypreParMatrix *A = a.ParallelAssemble();
+
+   igr_gf.GetTrueDofs(Xigr);
+   b.ParallelAssemble(Bigr);
+
+   Bigr *= -1.0;
+
+   cg_igr.SetOperator(*A);
+
+   jacobi_prec.SetOperator(*A);
+   cg_igr.SetPreconditioner(jacobi_prec);
+
+   cg_igr.SetMaxIter(5);
+   cg_igr.Mult(Bigr, Xigr);
+
+   delete A;
+
+   igr_gf.SetFromTrueDofs(Xigr);
+
+   // Critical because igr_gf aliases S.
+   igr_gf.SyncAliasMemory(S);
+
+   LAGHOS_DEVICE_SYNC;
+   timer.sw_igr.Stop();
 }
 
 
@@ -746,17 +1227,17 @@ void LagrangianHydroOperator::PrintTimingData(bool IamRoot, int steps,
                                               const bool fom) const
 {
    const MPI_Comm com = H1.GetComm();
-   double my_rt[5], T[5];
+   double my_rt[6], T[6];
    my_rt[0] = timer.sw_cgH1.RealTime();
    my_rt[1] = timer.sw_cgL2.RealTime();
    my_rt[2] = timer.sw_force.RealTime();
    my_rt[3] = timer.sw_qdata.RealTime();
-   my_rt[4] = my_rt[0] + my_rt[2] + my_rt[3];
-   MPI_Reduce(my_rt, T, 5, MPI_DOUBLE, MPI_MAX, 0, com);
+   my_rt[4] = timer.sw_igr.RealTime();
+   my_rt[5] = my_rt[0] + my_rt[2] + my_rt[3];
+   MPI_Reduce(my_rt, T, 6, MPI_DOUBLE, MPI_MAX, 0, com);
 
    HYPRE_BigInt mydata[3], alldata[3];
-   mydata[0] = static_cast<HYPRE_BigInt>(timer.L2dof) * static_cast<HYPRE_BigInt>
-               (timer.L2iter);
+   mydata[0] = static_cast<HYPRE_BigInt>(timer.L2dof) * static_cast<HYPRE_BigInt>(timer.L2iter);
    mydata[1] = timer.quad_tstep;
    mydata[2] = NE;
    MPI_Reduce(mydata, alldata, 3, HYPRE_MPI_BIG_INT, MPI_SUM, 0, com);
@@ -856,6 +1337,10 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
 
    qdata_is_current = true;
    forcemat_is_assembled = false;
+
+   //Calculates IGR Pressure or 0 if !useIGR
+   Vector *S_p = const_cast<Vector*>(&S);
+   CalcIGRP(*S_p);
 
    if (dim > 1 && p_assembly) { return qupdate->UpdateQuadratureData(S, qdata); }
 
