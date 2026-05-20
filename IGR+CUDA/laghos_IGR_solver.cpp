@@ -357,7 +357,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    L2Vsize(L2.GetVSize()),
    L2TVSize(L2.TrueVSize()),
    L2GTVSize(L2.GlobalTrueVSize()),
-   block_offsets(4),
+   block_offsets(5),
    x_gf(&H1), alpha_gf(&H1_scal),
    ess_tdofs(ess_tdofs),
    dim(pmesh->Dimension()),
@@ -411,9 +411,10 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    alpha_over_mass = new RatioCoefficient(*alpha_typePAcoeff, *massPAcoeff);
 	
    block_offsets[0] = 0;
-   block_offsets[1] = block_offsets[0] + H1Vsize; //x
-   block_offsets[2] = block_offsets[1] + H1Vsize; //v
-   block_offsets[3] = block_offsets[2] + L2Vsize; //igr_p
+   block_offsets[1] = block_offsets[0] + H1Vsize; // x
+   block_offsets[2] = block_offsets[1] + H1Vsize; // v
+   block_offsets[3] = block_offsets[2] + L2Vsize; // e
+   block_offsets[4] = block_offsets[3] + H1_scal.GetVSize(); // igr_p
    one.UseDevice(true);
    one = 1.0;
 
@@ -581,7 +582,7 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    UpdateMesh(S);
    
    // The monolithic BlockVector stores the unknown fields as follows:
-   // (Position, Velocity, Specific Internal Energy).
+   // (Position, Velocity, Specific Internal Energy, IGR Pressure).
    Vector* sptr = const_cast<Vector*>(&S);
    ParGridFunction v;
    
@@ -594,6 +595,8 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    SolveEnergyRHS(S, v, dS_dt);
 
    //SolveIGRPressRHS(S, v, dS_dt); //Currently does nothing but set to zero
+   MFEM_VERIFY(dS_dt.Size() >= 2*H1Vsize + L2Vsize + H1_scal.GetVSize(),
+               "dS_dt is missing the IGR pressure block.");
    digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
    digrp = 0.0;   
 
@@ -800,6 +803,8 @@ void LagrangianHydroOperator::SolveIGRPressRHS(const Vector &S, const Vector &v,
    // The monolithic BlockVector stores the unknown fields as follows:
    // (Position, Velocity, Specific Internal Energy, IGR Pressure).
    ParGridFunction digrp;
+   MFEM_VERIFY(dS_dt.Size() >= 2*H1Vsize + L2Vsize + H1_scal.GetVSize(),
+               "dS_dt is missing the IGR pressure block.");
    digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
    digrp = 0.0;
 
@@ -818,6 +823,9 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    {
       igr_gf = 0.0;
       igr_gf.SyncAliasMemory(S);
+      S.ReadWrite();
+      igr_gf.ReadWrite();
+      LAGHOS_DEVICE_SYNC;
       return;
    }
 
@@ -1479,7 +1487,6 @@ void QUpdateBody(const int NE, const int e,
                  double *d_dt_est,
                  double *d_stressJinvT)
 {
-   MFEM_CONTRACT_VAR(d_igr_quads);
    constexpr int DIM2 = DIM*DIM;
    double min_detJ = infinity;
 
@@ -1493,10 +1500,11 @@ void QUpdateBody(const int NE, const int e,
    kernels::CalcInverse<DIM>(J, Jinv);
    const double R = inv_weight * d_rho0DetJ0w[eq] / detJ;
    const double E = fmax(0.0, d_e_quads[eq]);
+   const double IGRP = -0.001; // = d_igr_quads[eq]
    const double P = (gamma - 1.0) * R * E;
    const double S = sqrt(gamma * (gamma - 1.0) * E);
    for (int k = 0; k < DIM2; k++) { stress[k] = 0.0; }
-   for (int d = 0; d < DIM; d++) { stress[d*DIM+d] = -P; }
+   for (int d = 0; d < DIM; d++) { stress[d*DIM+d] = -P + IGRP; }
    double visc_coeff = 0.0;
    if (use_viscosity)
    {
@@ -1787,6 +1795,7 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    q2->SetOutputLayout(QVectorLayout::byVDIM);
    q2->Values(e, q_e);
    igr.MakeRef(&H1_scal, *S_p, 2*H1_size + L2.GetVSize());
+   igr.SyncMemory(*S_p);
    q_igr_interp->SetOutputLayout(QVectorLayout::byVDIM);
    q_igr_interp->Values(igr, q_igr);
    q_dt_est = qdata.dt_est;

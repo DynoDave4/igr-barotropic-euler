@@ -181,7 +181,7 @@ int main(int argc, char *argv[])
    double delta_tol = 1e-12;
    int cg_max_iter = 300;
    int max_tsteps = -1;
-   bool p_assembly = true;
+   bool p_assembly = false;
    bool impose_visc = false;
    bool visualization = false;
    int vis_steps = 5;
