@@ -49,6 +49,8 @@
 #include <fstream>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <cmath>
+#include <chrono>
 #include "laghos_IGR_solver.hpp"
 #include "fem/qinterp/eval.hpp"
 #include "fem/qinterp/det.hpp"
@@ -146,6 +148,10 @@ public:
 
 int main(int argc, char *argv[])
 {
+
+   //Start Timer
+   auto start = std::chrono::high_resolution_clock::now();
+
    // Initialize MPI.
    Mpi::Init();
    int myid = Mpi::WorldRank();
@@ -1146,6 +1152,12 @@ int main(int argc, char *argv[])
    CALI_CXX_MARK_LOOP_END(mainloop_annotation);
    adiak::value("steps", ti);
 #endif
+
+   //End timer
+   auto end = std::chrono::high_resolution_clock::now();
+   std::chrono::duration<double> duration = end - start;
+   double elapsed_seconds = duration.count();
+   if(Mpi::Root()){cout << "Execution time: " << elapsed_seconds << " seconds." << endl; }
 
    MFEM_VERIFY(!check || checks == 2, "Check error!");
 

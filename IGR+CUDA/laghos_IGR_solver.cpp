@@ -1223,12 +1223,13 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    timer.sw_qdata.Start();
    LAGHOS_CALI_MARK_BEGIN("LagrangianHydroOperator-UpdateQuadratureData");
    const int nqp = ir.GetNPoints();
-   ParGridFunction x, v, e;
+   ParGridFunction x, v, e, igr;
    Vector* sptr = const_cast<Vector*>(&S);
    x.MakeRef(&H1, *sptr, 0);
    v.MakeRef(&H1, *sptr, H1.GetVSize());
    e.MakeRef(&L2, *sptr, 2*H1.GetVSize());
-   Vector e_vals;
+   igr.MakeRef(&H1_scal, *sptr, 2*H1.GetVSize() + L2.GetVSize());
+   Vector e_vals, igr_vals;
    DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
 
    // Batched computations are needed, because hydrodynamic codes usually
@@ -1241,6 +1242,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    double *gamma_b = new double[nqp_batch],
    *rho_b = new double[nqp_batch],
    *e_b   = new double[nqp_batch],
+   *igr_b = new double[nqp_batch],
    *p_b   = new double[nqp_batch],
    *cs_b  = new double[nqp_batch];
    // Jacobians of reference->physical transformations for all quadrature points
@@ -1263,6 +1265,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
          ElementTransformation *T = H1.GetElementTransformation(z_id);
          Jpr_b[z].SetSize(dim, dim, nqp);
          e.GetValues(z_id, ir, e_vals);
+         igr.GetValues(z_id, ir, igr_vals);
          for (int q = 0; q < nqp; q++)
          {
             const IntegrationPoint &ip = ir.IntPoint(q);
@@ -1275,6 +1278,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
             gamma_b[idx] = gamma_gf(z_id);
             rho_b[idx] = qdata.rho0DetJ0w(z_id*nqp + q) / detJ / ip.weight;
             e_b[idx] = fmax(0.0, e_vals(q));
+            igr_b[idx] = igr_vals(q);
          }
          ++z_id;
       }
@@ -1295,9 +1299,10 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
             const DenseMatrix &Jpr = Jpr_b[z](q);
             CalcInverse(Jpr, Jinv);
             const double detJ = Jpr.Det(), rho = rho_b[z*nqp + q],
-                         p = p_b[z*nqp + q], sound_speed = cs_b[z*nqp + q];
+                         p = p_b[z*nqp + q], igr_p = igr_b[z*nqp + q],
+                         sound_speed = cs_b[z*nqp + q];
             stress = 0.0;
-            for (int d = 0; d < dim; d++) { stress(d, d) = -p; }
+            for (int d = 0; d < dim; d++) { stress(d, d) = -p + igr_p; }
             double visc_coeff = 0.0;
             if (use_viscosity)
             {
@@ -1380,6 +1385,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    delete [] gamma_b;
    delete [] rho_b;
    delete [] e_b;
+   delete [] igr_b;
    delete [] p_b;
    delete [] cs_b;
    delete [] Jpr_b;
@@ -1765,7 +1771,7 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    const int H1_size = H1.GetVSize();
    const double h1order = (double) H1.GetOrder(0);
    const double infinity = std::numeric_limits<double>::infinity();
-   ParGridFunction x, v, e;
+   ParGridFunction x, v, e, igr;
    x.MakeRef(&H1,*S_p, 0);
    H1R->Mult(x, e_vec);
    q1->SetOutputLayout(QVectorLayout::byVDIM);
@@ -1776,6 +1782,9 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    e.MakeRef(&L2, *S_p, 2*H1_size);
    q2->SetOutputLayout(QVectorLayout::byVDIM);
    q2->Values(e, q_e);
+   igr.MakeRef(&H1_scal, *S_p, 2*H1_size + L2.GetVSize());
+   q_igr_interp->SetOutputLayout(QVectorLayout::byVDIM);
+   q_igr_interp->Values(igr, q_igr);
    q_dt_est = qdata.dt_est;
    const int id = (dim << 4) | Q1D;
    typedef void (*fQKernel)(const int NE, const int NQ,

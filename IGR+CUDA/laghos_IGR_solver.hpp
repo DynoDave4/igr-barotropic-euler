@@ -65,10 +65,10 @@ private:
    const double cfl;
    TimingData *timer;
    const IntegrationRule &ir;
-   ParFiniteElementSpace &H1, &L2;
+   ParFiniteElementSpace &H1, &H1_scal, &L2;
    const Operator *H1R;
-   Vector q_dt_est, q_e, e_vec, q_dx, q_dv;
-   const QuadratureInterpolator *q1,*q2;
+   Vector q_dt_est, q_e, q_igr, e_vec, q_dx, q_dv;
+   const QuadratureInterpolator *q1,*q2,*q_igr_interp;
    const ParGridFunction &gamma_gf;
    double alpha = 0.001;
 public:
@@ -82,15 +82,17 @@ public:
       dim(d), vdim(h1.GetVDim()),
       NQ(ir.GetNPoints()), NE(ne), Q1D(q1d),
       use_viscosity(visc), use_vorticity(vort), cfl(cfl),
-      timer(t), ir(ir), H1(h1), L2(l2),
+      timer(t), ir(ir), H1(h1), H1_scal(h1scal), L2(l2),
       H1R(H1.GetElementRestriction(ElementDofOrdering::LEXICOGRAPHIC)),
       q_dt_est(NE*NQ),
       q_e(NE*NQ),
+      q_igr(NE*NQ),
       e_vec(NQ*NE*vdim),
       q_dx(NQ*NE*vdim*vdim),
       q_dv(NQ*NE*vdim*vdim),
       q1(H1.GetQuadratureInterpolator(ir)),
       q2(L2.GetQuadratureInterpolator(ir)),
+      q_igr_interp(H1_scal.GetQuadratureInterpolator(ir)),
       gamma_gf(gamma_gf), alpha(alpha_) { }
 
    
