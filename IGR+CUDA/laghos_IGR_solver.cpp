@@ -1473,11 +1473,13 @@ void QUpdateBody(const int NE, const int e,
                  const double* __restrict__ d_Jacobians,
                  const double* __restrict__ d_rho0DetJ0w,
                  const double* __restrict__ d_e_quads,
+                 const double* __restrict__ d_igr_quads,
                  const double* __restrict__ d_grad_v_ext,
                  const double* __restrict__ d_Jac0inv,
                  double *d_dt_est,
                  double *d_stressJinvT)
 {
+   MFEM_CONTRACT_VAR(d_igr_quads);
    constexpr int DIM2 = DIM*DIM;
    double min_detJ = infinity;
 
@@ -1684,6 +1686,7 @@ void QKernel(const int NE, const int NQ,
              const Vector &Jacobians,
              const Vector &rho0DetJ0w,
              const Vector &e_quads,
+             const Vector &igr_quads,
              const Vector &grad_v_ext,
              const DenseTensor &Jac0inv,
              Vector &dt_est,
@@ -1695,6 +1698,7 @@ void QKernel(const int NE, const int NQ,
    const auto d_Jacobians = Jacobians.Read();
    const auto d_rho0DetJ0w = rho0DetJ0w.Read();
    const auto d_e_quads = e_quads.Read();
+   const auto d_igr_quads = igr_quads.Read();
    const auto d_grad_v_ext = grad_v_ext.Read();
    const auto d_Jac0inv = Read(Jac0inv.GetMemory(), Jac0inv.TotalSize());
    auto d_dt_est = dt_est.ReadWrite();
@@ -1721,7 +1725,7 @@ void QKernel(const int NE, const int NQ,
                                 Jinv, stress, sgrad_v, eig_val_data, eig_vec_data,
                                 compr_dir, Jpi, ph_dir, stressJiT,
                                 d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
-                                d_e_quads, d_grad_v_ext, d_Jac0inv,
+                                d_e_quads, d_igr_quads, d_grad_v_ext, d_Jac0inv,
                                 d_dt_est, d_stressJinvT);
             }
          }
@@ -1752,7 +1756,7 @@ void QKernel(const int NE, const int NQ,
                                    Jinv, stress, sgrad_v, eig_val_data, eig_vec_data,
                                    compr_dir, Jpi, ph_dir, stressJiT,
                                    d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
-                                   d_e_quads, d_grad_v_ext, d_Jac0inv,
+                                   d_e_quads, d_igr_quads, d_grad_v_ext, d_Jac0inv,
                                    d_dt_est, d_stressJinvT);
                }
             }
@@ -1795,7 +1799,8 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
                             const ParGridFunction &gamma_gf,
                             const Array<double> &weights,
                             const Vector &Jacobians, const Vector &rho0DetJ0w,
-                            const Vector &e_quads, const Vector &grad_v_ext,
+                            const Vector &e_quads, const Vector &igr_quads,
+                            const Vector &grad_v_ext,
                             const DenseTensor &Jac0inv,
                             Vector &dt_est, DenseTensor &stressJinvT);
    static std::unordered_map<int, fQKernel> qupdate =
@@ -1815,7 +1820,7 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    }
    qupdate[id](NE, NQ, use_viscosity, use_vorticity, qdata.h0, h1order,
                cfl, infinity, gamma_gf, ir.GetWeights(), q_dx,
-               qdata.rho0DetJ0w, q_e, q_dv,
+               qdata.rho0DetJ0w, q_e, q_igr, q_dv,
                qdata.Jac0inv, q_dt_est, qdata.stressJinvT);
    qdata.dt_est = q_dt_est.Min();
    LAGHOS_DEVICE_SYNC;
