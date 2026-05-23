@@ -540,9 +540,6 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
       CG_EMass.SetMaxIter(cg_max_iter);
       CG_EMass.SetPrintLevel(-1);
 
-      //cg_igr.SetOperator(*EMassPA);
-      cg_igr.iterative_mode = true;
-      cg_igr.SetPrintLevel(-1);
    }
    else
    {
@@ -588,17 +585,23 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    
    v.MakeRef(&H1, *sptr, H1Vsize);
    // Set dx_dt = v (explicit).
+   MFEM_VERIFY(dS_dt.Size() >= 2*H1Vsize + L2Vsize + H1_scal.GetVSize(),
+               "dS_dt is missing the IGR pressure block.");
    ParGridFunction dx, digrp;
    dx.MakeRef(&H1, dS_dt, 0);
+   digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
+   digrp = 0.0;
+   digrp.GetMemory().SyncAlias(dS_dt.GetMemory(), digrp.Size());
+   LAGHOS_DEVICE_SYNC;
+
    dx = v;
    SolveVelocityRHS(S, dS_dt);
    SolveEnergyRHS(S, v, dS_dt);
 
    //SolveIGRPressRHS(S, v, dS_dt); //Currently does nothing but set to zero
-   MFEM_VERIFY(dS_dt.Size() >= 2*H1Vsize + L2Vsize + H1_scal.GetVSize(),
-               "dS_dt is missing the IGR pressure block.");
-   digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
-   digrp = 0.0;   
+   digrp = 0.0;
+   digrp.GetMemory().SyncAlias(dS_dt.GetMemory(), digrp.Size());
+   LAGHOS_DEVICE_SYNC;
 
    qdata_is_current = false;
 }
@@ -823,8 +826,6 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    {
       igr_gf = 0.0;
       igr_gf.SyncAliasMemory(S);
-      S.ReadWrite();
-      igr_gf.ReadWrite();
       LAGHOS_DEVICE_SYNC;
       return;
    }
@@ -1132,8 +1133,8 @@ void LagrangianHydroOperator::PrintTimingData(bool IamRoot, int steps,
       const double FOM1 = 1e-6 * H1GTVSize * H1iter / T[0];
       const double FOM2 = 1e-6 * steps * (H1GTVSize + L2GTVSize) / T[2];
       const double FOM3 = 1e-6 * alldata[1] * ir.GetNPoints() / T[3];
-      const double FOM = (FOM1 * T[0] + FOM2 * T[2] + FOM3 * T[3]) / T[4];
-      const double FOM0 = 1e-6 * steps * (H1GTVSize + L2GTVSize) / T[4];
+      const double FOM = (FOM1 * T[0] + FOM2 * T[2] + FOM3 * T[3]) / T[5];
+      const double FOM0 = 1e-6 * steps * (H1GTVSize + L2GTVSize) / T[5];
       cout << endl;
       cout << "CG (H1) total time: " << T[0] << endl;
       cout << "CG (H1) rate (megadofs x cg_iterations / second): "
@@ -1151,7 +1152,9 @@ void LagrangianHydroOperator::PrintTimingData(bool IamRoot, int steps,
       cout << "UpdateQuadData rate (megaquads x timesteps / second): "
            << FOM3 << endl;
       cout << endl;
-      cout << "Major kernels total time (seconds): " << T[4] << endl;
+      cout << "IGR Pressure total time: " << T[4] << endl;
+      cout << endl;
+      cout << "Major kernels total time (seconds): " << T[5] << endl;
       cout << "Major kernels total rate (megadofs x time steps / second): "
            << FOM << endl;
       if (!fom) { return; }
@@ -1183,7 +1186,7 @@ void LagrangianHydroOperator::PrintTimingData(bool IamRoot, int steps,
            << "| " << setw(7) << FOM3
            << "| " << setw(5) << T[3]
            << "| " << setw(7) << FOM
-           << "| " << setw(5) << T[4]
+           << "| " << setw(5) << T[5]
            << "| " << endl;
 #ifdef LAGHOS_USE_CALIPER
       adiak::value("zones", GNZones);
@@ -1199,7 +1202,7 @@ void LagrangianHydroOperator::PrintTimingData(bool IamRoot, int steps,
       adiak::value("fom3", FOM3);
       adiak::value("t3", T[3]);
       adiak::value("fom4", FOM);
-      adiak::value("tt", T[4]);
+      adiak::value("tt", T[5]);
 #endif
    }
 }
@@ -1223,6 +1226,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    //Calculates IGR Pressure or 0 if !useIGR
    Vector *S_p = const_cast<Vector*>(&S);
    CalcIGRP(*S_p);
+   LAGHOS_DEVICE_SYNC;
 
    if (dim > 1 && p_assembly) { return qupdate->UpdateQuadratureData(S, qdata); }
 
@@ -1401,6 +1405,9 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    LAGHOS_CALI_MARK_END("LagrangianHydroOperator-UpdateQuadratureData");
    timer.sw_qdata.Stop();
    timer.quad_tstep += NE;
+
+   qdata_is_current = true;
+   forcemat_is_assembled = false;
 }
 
 /// Trace of a square matrix
@@ -1500,7 +1507,7 @@ void QUpdateBody(const int NE, const int e,
    kernels::CalcInverse<DIM>(J, Jinv);
    const double R = inv_weight * d_rho0DetJ0w[eq] / detJ;
    const double E = fmax(0.0, d_e_quads[eq]);
-   const double IGRP = -0.001; // = d_igr_quads[eq]
+   const double IGRP =  d_igr_quads[eq];
    const double P = (gamma - 1.0) * R * E;
    const double S = sqrt(gamma * (gamma - 1.0) * E);
    for (int k = 0; k < DIM2; k++) { stress[k] = 0.0; }
@@ -1794,10 +1801,12 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    e.MakeRef(&L2, *S_p, 2*H1_size);
    q2->SetOutputLayout(QVectorLayout::byVDIM);
    q2->Values(e, q_e);
+
    igr.MakeRef(&H1_scal, *S_p, 2*H1_size + L2.GetVSize());
-   igr.SyncMemory(*S_p);
+   H1_scalR->Mult(igr, igrR_vec);
+   //igr.SyncMemory(*S_p);
    q_igr_interp->SetOutputLayout(QVectorLayout::byVDIM);
-   q_igr_interp->Values(igr, q_igr);
+   q_igr_interp->Values(igrR_vec, q_igr);
    q_dt_est = qdata.dt_est;
    const int id = (dim << 4) | Q1D;
    typedef void (*fQKernel)(const int NE, const int NQ,

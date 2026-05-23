@@ -66,8 +66,8 @@ private:
    TimingData *timer;
    const IntegrationRule &ir;
    ParFiniteElementSpace &H1, &H1_scal, &L2;
-   const Operator *H1R;
-   Vector q_dt_est, q_e, q_igr, e_vec, q_dx, q_dv;
+   const Operator *H1R, *H1_scalR;
+   Vector q_dt_est, q_e, q_igr, e_vec, igrR_vec, q_dx, q_dv;
    const QuadratureInterpolator *q1,*q2,*q_igr_interp;
    const ParGridFunction &gamma_gf;
    double alpha = 0.001;
@@ -84,10 +84,12 @@ public:
       use_viscosity(visc), use_vorticity(vort), cfl(cfl),
       timer(t), ir(ir), H1(h1), H1_scal(h1scal), L2(l2),
       H1R(H1.GetElementRestriction(ElementDofOrdering::LEXICOGRAPHIC)),
+      H1_scalR(H1_scal.GetElementRestriction(ElementDofOrdering::LEXICOGRAPHIC)),
       q_dt_est(NE*NQ),
       q_e(NE*NQ),
       q_igr(NE*NQ),
       e_vec(NQ*NE*vdim),
+      igrR_vec(H1_scal.GetFE(0)->GetDof()*NE),
       q_dx(NQ*NE*vdim*vdim),
       q_dv(NQ*NE*vdim*vdim),
       q1(H1.GetQuadratureInterpolator(ir)),
