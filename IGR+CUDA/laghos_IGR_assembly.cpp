@@ -1025,14 +1025,12 @@ void IGRPAOperator::EliminateRHS(Vector &b) const
 
 void IGRPAOperator::Mult(const Vector &x, Vector &y) const
 {
-   Assemble();
    LHS->Mult(x, y);
    if (ess_tdofs_count > 0) { y.SetSubVector(ess_tdofs, 0.0); }
 }
 
 void IGRPAOperator::AssembleDiagonal(Vector &diag) const
 {
-   Assemble();
    LHS->AssembleDiagonal(diag);
 }
 

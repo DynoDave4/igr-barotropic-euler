@@ -421,7 +421,8 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
    if (p_assembly)
    {
       qupdate = new QUpdate(dim, NE, Q1D, visc, vort, cfl,
-                            &timer, gamma_gf, ir, H1, H1_scal, L2, alpha);
+                            &timer, gamma_gf, ir, H1, H1_scal, L2, alpha,
+                            visc_const, visc_type);
       ForcePA = new ForcePAOperator(qdata, H1, L2, ir);
       VMassPA = new MassPAOperator(H1c, ir, rho0_coeff);
       EMassPA = new MassPAOperator(L2, ir, rho0_coeff);
@@ -830,16 +831,6 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
       return;
    }
 
-   const int nqp = ir.GetNPoints();
-   QuadratureSpace qs(pmesh, ir.GetOrder());
-   QuadratureFunction rho_q(&qs);
-   //MFEM_VERIFY(rho_q.Size() == NE*ir.GetOrder(), "Size mismatch!");
-   if(Mpi::Root()){
-      //std::cout << "ir order " << ir.GetOrder() << std::endl;
-      //std::cout << "rho_q size " << rho_q.Size() << std::endl;
-      //std::cout << "NE " << NE << std::endl;
-   }
-
    LAGHOS_DEVICE_SYNC;
    timer.sw_igr.Start();
 
@@ -848,34 +839,9 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    RHSgScal gCoeffScal(v);
    
    MFEM_VERIFY(alpha_typePAcoeff != NULL, "IGR alpha coefficient is not initialized.");
-   alpha_gf.ProjectCoefficient(*alpha_typePAcoeff);
    ProductCoefficient alpha_g(*alpha_typePAcoeff, gCoeffScal);
    b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
    b.Assemble();
-   
-   for (int z = 0; z < NE; z++)
-   {
-      ElementTransformation *T = H1.GetElementTransformation(z);
-
-      for (int q = 0; q < nqp; q++)
-      {
-         const IntegrationPoint &ip = ir.IntPoint(q);
-         T->SetIntPoint(&ip);
-
-         const double detJ = (T->Jacobian()).Det();
-         
-         const int idx = z * nqp + q;
-         const double rho = qdata.rho0DetJ0w(idx) / detJ / ip.weight;
-         rho_q(idx)         = rho;
-      }
-   } 
-   
-   double rho_min = rho_q.Min();
-   double rho_max = rho_q.Max();
-   if(rho_min < 0.0 && Mpi::Root()){
-	   mfem::out << "rho in [" << rho_min << ", " << rho_max << "]\n";
-   }
-   
 
    //Set up bilinear form (LHS)
    HypreParMatrix *A = NULL;
@@ -883,6 +849,7 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    {
       MFEM_VERIFY(IGRMassPA != NULL, "IGR partial assembly operator is not initialized.");
       MFEM_VERIFY(IGRMassPA_Jprec != NULL, "IGR Jacobi preconditioner is not initialized.");
+      IGRMassPA->Assemble();
       IGRMassPA_Jprec->SetOperator(*IGRMassPA);
       cg_igr.SetPreconditioner(*IGRMassPA_Jprec);
       cg_igr.SetOperator(*IGRMassPA);
@@ -909,7 +876,7 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    cg_igr.SetAbsTol(0.0);
    cg_igr.SetPrintLevel(-1);
    cg_igr.SetMaxIter(5);
-   if(t < 0.001){cg_igr.SetMaxIter(500);}
+   if(t < 0.00001){cg_igr.SetMaxIter(500);}
 
    LAGHOS_DEVICE_SYNC;
    cg_igr.Mult(Bigr, Xigr);
@@ -1357,7 +1324,28 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                const double eps = 1e-12;
                visc_coeff += 0.5 * rho * h * sound_speed * vorticity_coeff *
                              (1.0 - smooth_step_01(mu - 2.0 * eps, eps));
-               stress.Add(visc_coeff, sgrad_v);
+
+               if (visc_type == 1)
+               {
+                  stress.Add(visc_coeff, sgrad_v);
+               }
+               else if (visc_type == 2 && visc_const > 0.0)
+               {
+                  visc_coeff = visc_const;
+                  stress.Add(visc_coeff, sgrad_v);
+               }
+               else if (visc_type == 3 && visc_const > 0.0)
+               {
+                  Vector vel(dim);
+                  v.GetVectorValue(*T, ip, vel);
+                  visc_coeff = rho * h * h * visc_const *
+                               (vel.Norml2() + sound_speed);
+                  stress.Add(visc_coeff, sgrad_v);
+               }
+               else
+               {
+                  visc_coeff = 0.0;
+               }
             }
             // Time step estimate at the point. Here the more relevant length
             // scale is related to the actual mesh deformation; we use the min
@@ -1489,8 +1477,11 @@ void QUpdateBody(const int NE, const int e,
                  const double* __restrict__ d_rho0DetJ0w,
                  const double* __restrict__ d_e_quads,
                  const double* __restrict__ d_igr_quads,
+                 const double* __restrict__ d_v_quads,
                  const double* __restrict__ d_grad_v_ext,
                  const double* __restrict__ d_Jac0inv,
+                 const double visc_const,
+                 const int visc_type,
                  double *d_dt_est,
                  double *d_stressJinvT)
 {
@@ -1558,7 +1549,27 @@ void QUpdateBody(const int NE, const int e,
       const double eps = 1e-12;
       visc_coeff += 0.5 * R * H  * S * vorticity_coeff *
                     (1.0 - smooth_step_01(mu-2.0*eps, eps));
-      kernels::Add(DIM, DIM, visc_coeff, stress, sgrad_v, stress);
+
+      if (visc_type == 1)
+      {
+         kernels::Add(DIM, DIM, visc_coeff, stress, sgrad_v, stress);
+      }
+      else if (visc_type == 2 && visc_const > 0.0)
+      {
+         visc_coeff = visc_const;
+         kernels::Add(DIM, DIM, visc_coeff, stress, sgrad_v, stress);
+      }
+      else if (visc_type == 3 && visc_const > 0.0)
+      {
+         const double *V = d_v_quads + DIM*(NQ*e + q);
+         const double vel_norm = kernels::Norml2(DIM, V);
+         visc_coeff = R * H * H * visc_const * (vel_norm + S);
+         kernels::Add(DIM, DIM, visc_coeff, stress, sgrad_v, stress);
+      }
+      else
+      {
+         visc_coeff = 0.0;
+      }
    }
    // Time step estimate at the point. Here the more relevant length
    // scale is related to the actual mesh deformation; we use the min
@@ -1702,8 +1713,11 @@ void QKernel(const int NE, const int NQ,
              const Vector &rho0DetJ0w,
              const Vector &e_quads,
              const Vector &igr_quads,
+             const Vector &v_quads,
              const Vector &grad_v_ext,
              const DenseTensor &Jac0inv,
+             const double visc_const,
+             const int visc_type,
              Vector &dt_est,
              DenseTensor &stressJinvT)
 {
@@ -1714,6 +1728,8 @@ void QKernel(const int NE, const int NQ,
    const auto d_rho0DetJ0w = rho0DetJ0w.Read();
    const auto d_e_quads = e_quads.Read();
    const auto d_igr_quads = igr_quads.Read();
+   const bool need_v_quads = use_viscosity && visc_type == 3 && visc_const > 0.0;
+   const double *d_v_quads = need_v_quads ? v_quads.Read() : nullptr;
    const auto d_grad_v_ext = grad_v_ext.Read();
    const auto d_Jac0inv = Read(Jac0inv.GetMemory(), Jac0inv.TotalSize());
    auto d_dt_est = dt_est.ReadWrite();
@@ -1740,8 +1756,9 @@ void QKernel(const int NE, const int NQ,
                                 Jinv, stress, sgrad_v, eig_val_data, eig_vec_data,
                                 compr_dir, Jpi, ph_dir, stressJiT,
                                 d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
-                                d_e_quads, d_igr_quads, d_grad_v_ext, d_Jac0inv,
-                                d_dt_est, d_stressJinvT);
+                                d_e_quads, d_igr_quads, d_v_quads, d_grad_v_ext,
+                                d_Jac0inv, visc_const, visc_type, d_dt_est,
+                                d_stressJinvT);
             }
          }
          MFEM_SYNC_THREAD;
@@ -1771,8 +1788,9 @@ void QKernel(const int NE, const int NQ,
                                    Jinv, stress, sgrad_v, eig_val_data, eig_vec_data,
                                    compr_dir, Jpi, ph_dir, stressJiT,
                                    d_gamma, d_weights, d_Jacobians, d_rho0DetJ0w,
-                                   d_e_quads, d_igr_quads, d_grad_v_ext, d_Jac0inv,
-                                   d_dt_est, d_stressJinvT);
+                                   d_e_quads, d_igr_quads, d_v_quads, d_grad_v_ext,
+                                   d_Jac0inv, visc_const, visc_type, d_dt_est,
+                                   d_stressJinvT);
                }
             }
          }
@@ -1797,6 +1815,16 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    q1->Derivatives(e_vec, q_dx);
    v.MakeRef(&H1,*S_p, H1_size);
    H1R->Mult(v, e_vec);
+   const bool need_v_quads = use_viscosity && visc_type == 3 && visc_const > 0.0;
+   if (need_v_quads)
+   {
+      q_v.SetSize(NQ*NE*vdim);
+      q1->Values(e_vec, q_v);
+   }
+   else if (q_v.Size() != 0)
+   {
+      q_v.Destroy();
+   }
    q1->Derivatives(e_vec, q_dv);
    e.MakeRef(&L2, *S_p, 2*H1_size);
    q2->SetOutputLayout(QVectorLayout::byVDIM);
@@ -1818,8 +1846,11 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
                             const Array<double> &weights,
                             const Vector &Jacobians, const Vector &rho0DetJ0w,
                             const Vector &e_quads, const Vector &igr_quads,
+                            const Vector &v_quads,
                             const Vector &grad_v_ext,
                             const DenseTensor &Jac0inv,
+                            const double visc_const,
+                            const int visc_type,
                             Vector &dt_est, DenseTensor &stressJinvT);
    static std::unordered_map<int, fQKernel> qupdate =
    {
@@ -1838,8 +1869,9 @@ void QUpdate::UpdateQuadratureData(const Vector &S, QuadratureData &qdata)
    }
    qupdate[id](NE, NQ, use_viscosity, use_vorticity, qdata.h0, h1order,
                cfl, infinity, gamma_gf, ir.GetWeights(), q_dx,
-               qdata.rho0DetJ0w, q_e, q_igr, q_dv,
-               qdata.Jac0inv, q_dt_est, qdata.stressJinvT);
+               qdata.rho0DetJ0w, q_e, q_igr, q_v, q_dv,
+               qdata.Jac0inv, visc_const, visc_type, q_dt_est,
+               qdata.stressJinvT);
    qdata.dt_est = q_dt_est.Min();
    LAGHOS_DEVICE_SYNC;
    LAGHOS_CALI_MARK_END("QUpdate-UpdateQuadratureData");

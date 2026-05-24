@@ -67,10 +67,12 @@ private:
    const IntegrationRule &ir;
    ParFiniteElementSpace &H1, &H1_scal, &L2;
    const Operator *H1R, *H1_scalR;
-   Vector q_dt_est, q_e, q_igr, e_vec, igrR_vec, q_dx, q_dv;
+   Vector q_dt_est, q_e, q_igr, e_vec, igrR_vec, q_dx, q_dv, q_v;
    const QuadratureInterpolator *q1,*q2,*q_igr_interp;
    const ParGridFunction &gamma_gf;
    double alpha = 0.001;
+   double visc_const = 0.0001;
+   int visc_type = 3;
 public:
    QUpdate(const int d, const int ne, const int q1d,
            const bool visc, const bool vort,
@@ -78,7 +80,8 @@ public:
            const ParGridFunction &gamma_gf,
            const IntegrationRule &ir,
            ParFiniteElementSpace &h1, ParFiniteElementSpace &h1scal,
-           ParFiniteElementSpace &l2, double alpha_):
+           ParFiniteElementSpace &l2, double alpha_,
+           double visc_const_, int visc_type_):
       dim(d), vdim(h1.GetVDim()),
       NQ(ir.GetNPoints()), NE(ne), Q1D(q1d),
       use_viscosity(visc), use_vorticity(vort), cfl(cfl),
@@ -95,10 +98,13 @@ public:
       q1(H1.GetQuadratureInterpolator(ir)),
       q2(L2.GetQuadratureInterpolator(ir)),
       q_igr_interp(H1_scal.GetQuadratureInterpolator(ir)),
-      gamma_gf(gamma_gf), alpha(alpha_) { }
+      gamma_gf(gamma_gf), alpha(alpha_),
+      visc_const(visc_const_), visc_type(visc_type_) { }
 
    
    void UpdateUseVisc(bool val) { use_viscosity = val;  };
+   void SetViscConst(double vc) { visc_const = vc; }
+   void SetViscType(int vt) { visc_type = vt; }
 
    void UpdateQuadratureData(const Vector &S, QuadratureData &qdata);
 };
@@ -216,8 +222,12 @@ public:
              use_viscosity = val;  };
    void SetAlpha(double a){ alpha = a; }
    void SetAlphaType(int a){ at = a; }
-   void SetViscConst(double vc){ visc_const = vc; }
-   void SetViscType(int vt){ visc_type = vt; }
+   void SetViscConst(double vc){
+             if (qupdate) { qupdate->SetViscConst(vc); }
+             visc_const = vc; }
+   void SetViscType(int vt){
+             if (qupdate) { qupdate->SetViscType(vt); }
+             visc_type = vt; }
 
    // Solve for dx_dt, dv_dt and de_dt.
    virtual void Mult(const Vector &S, Vector &dS_dt) const;

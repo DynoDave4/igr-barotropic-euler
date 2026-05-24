@@ -144,12 +144,12 @@ private:
    int ess_tdofs_count;
    Array<int> ess_tdofs;
    mutable OperatorPtr LHS;
-   void Assemble() const;
 public:
    IGRPAOperator(ParFiniteElementSpace&, const IntegrationRule&, Coefficient&, Coefficient&);
+   void Assemble() const;
    virtual void Mult(const Vector&, Vector&) const;
    virtual void AssembleDiagonal(Vector&) const;
-   void MultFull(const Vector &x, Vector &y) const { Assemble(); LHS->Mult(x, y); }
+   void MultFull(const Vector &x, Vector &y) const { LHS->Mult(x, y); }
    virtual void SetEssentialTrueDofs(Array<int>&);
    virtual void EliminateRHS(Vector&) const;
    const ParBilinearForm &GetBF() const { return pabf; }

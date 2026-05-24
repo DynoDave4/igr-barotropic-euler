@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
    int order_v = 2;
    int order_e = 1;
    int order_q = -1;
-   int ode_solver_type = 4;
+   int ode_solver_type = 3;
    double t_final = 0.6;
    double cfl = 0.5;
    double cg_tol = 1e-8;
@@ -722,26 +722,26 @@ int main(int argc, char *argv[])
    mat_gf.ProjectCoefficient(mat_coeff);
 
    // Additional details, depending on the problem.
-   int source = 0; bool visc = true, vorticity = false;
+   int source = 0; bool visc = false, vorticity = false;
    switch (problem)
    {
-      case 0: if (dim == 2) { source = 1; } visc = false; break;
-      case 1: visc = true; break;
-      case 2: visc = true; break;
-      case 3: visc = true; S.HostRead(); break;
-      case 4: visc = false; break;
-      case 5: visc = true; break;
-      case 6: visc = true; break;
-      case 7: source = 2; visc = true; vorticity = true;  break;
-      case 8: visc = true; break;
-	   case 9: visc = false; break;
-	   case 10: visc = false; break;
-      case 11: visc = false; break;
-      case 12: visc = false; break;
-      case 13: visc = false; break;
-      case 14: visc = false; break;
-      case 15: visc = true; S.HostRead(); break;
-      case 16: visc = true; S.HostRead(); break;
+      case 0: if (dim == 2) { source = 1; } break;
+      case 1: break;
+      case 2: break;
+      case 3: S.HostRead(); break;
+      case 4: break;
+      case 5: break;
+      case 6: break;
+      case 7: source = 2; vorticity = true;  break;
+      case 8: break;
+	   case 9: break;
+	   case 10: break;
+      case 11: break;
+      case 12: break;
+      case 13: break;
+      case 14: break;
+      case 15: S.HostRead(); break;
+      case 16: S.HostRead(); break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -755,6 +755,8 @@ int main(int argc, char *argv[])
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q, useIGR,
                                                 alpha, alpha_type);
+   hydro.SetViscConst(visc_const);
+   hydro.SetViscType(visc_type);
 
    socketstream vis_rho, vis_v, vis_e, vis_igr;
    char vishost[] = "localhost";
