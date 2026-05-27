@@ -40,9 +40,9 @@ namespace mfem
 class RHSgScal : public Coefficient //Takes in one term
 {
    private:
-      GridFunction &u; // vector-valued GridFunction
+      const GridFunction &u; // vector-valued GridFunction
    public:
-      RHSgScal(GridFunction &u_) : u(u_) {}
+      RHSgScal(const GridFunction &u_) : u(u_) {}
 
    virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
    {
@@ -342,13 +342,17 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
                                                  const int cgiter,
                                                  double ftz,
                                                  const int oq,
-												 bool useIGR,
+                                                 bool useIGR,
                                                  double alpha_,
-                                                 int alpha_type_) :
+                                                 int alpha_type_,
+                                                 bool parabolic_,
+                                                 double C_epsilon_) :
    TimeDependentOperator(size),
    H1(h1), H1_scal(h1_scal), L2(l2), H1c(H1.GetParMesh(), H1.FEColl(), 1),
    useIGR(useIGR), cg_igr(MPI_COMM_WORLD), amg_prec(), jacobi_prec(),
    alpha(alpha_),
+   parabolic(parabolic_),
+   C_epsilon(C_epsilon_),
    at(alpha_type_),
    pmesh(H1.GetParMesh()),
    H1Vsize(H1.GetVSize()),
@@ -588,8 +592,9 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    // Set dx_dt = v (explicit).
    MFEM_VERIFY(dS_dt.Size() >= 2*H1Vsize + L2Vsize + H1_scal.GetVSize(),
                "dS_dt is missing the IGR pressure block.");
-   ParGridFunction dx, digrp;
+   ParGridFunction dx, igr_gf, digrp;
    dx.MakeRef(&H1, dS_dt, 0);
+   igr_gf.MakeRef(&H1_scal, *sptr, H1Vsize*2 + L2Vsize);
    digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
    digrp = 0.0;
    digrp.GetMemory().SyncAlias(dS_dt.GetMemory(), digrp.Size());
@@ -599,10 +604,17 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
    SolveVelocityRHS(S, dS_dt);
    SolveEnergyRHS(S, v, dS_dt);
 
-   //SolveIGRPressRHS(S, v, dS_dt); //Currently does nothing but set to zero
-   digrp = 0.0;
-   digrp.GetMemory().SyncAlias(dS_dt.GetMemory(), digrp.Size());
-   LAGHOS_DEVICE_SYNC;
+   const bool first_step = (t <= 0.0);
+   if (parabolic && !first_step)
+   {
+      SolveIGRPressRHS(S, v, igr_gf, dS_dt);
+   }
+   else
+   {
+      digrp = 0.0;
+      digrp.GetMemory().SyncAlias(dS_dt.GetMemory(), digrp.Size());
+      LAGHOS_DEVICE_SYNC;
+   }
 
    qdata_is_current = false;
 }
@@ -799,19 +811,80 @@ void LagrangianHydroOperator::SolveEnergyRHS(const Vector &S, const Vector &v,
 }
 
 
-void LagrangianHydroOperator::SolveIGRPressRHS(const Vector &S, const Vector &v,
+void LagrangianHydroOperator::SolveIGRPressRHS(const Vector &S,
+                                          const ParGridFunction &v_gf,
+                                          const ParGridFunction &igr_gf,
                                           Vector &dS_dt) const
 {
    UpdateQuadratureData(S);
 
+   LAGHOS_DEVICE_SYNC;
+   timer.sw_igr.Start();
+   LAGHOS_CALI_MARK_BEGIN("SolveIGRPressRHS");
+
    // The monolithic BlockVector stores the unknown fields as follows:
    // (Position, Velocity, Specific Internal Energy, IGR Pressure).
-   ParGridFunction digrp;
    MFEM_VERIFY(dS_dt.Size() >= 2*H1Vsize + L2Vsize + H1_scal.GetVSize(),
                "dS_dt is missing the IGR pressure block.");
-   digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
-   digrp = 0.0;
 
+   ParGridFunction digrp;
+   digrp.MakeRef(&H1_scal, dS_dt, H1Vsize*2 + L2Vsize);
+
+   Vector igr_rhs, Aigrp, igrp;
+
+   ParLinearForm b(&H1_scal);
+   RHSgScal gCoeffScal(v_gf);
+
+   MFEM_VERIFY(alpha_typePAcoeff != NULL,
+               "IGR alpha coefficient is not initialized.");
+   ProductCoefficient alpha_g(*alpha_typePAcoeff, gCoeffScal);
+   b.AddDomainIntegrator(new DomainLFIntegrator(alpha_g));
+   b.Assemble();
+   b.ParallelAssemble(igr_rhs);
+   igr_rhs *= -1.0;
+
+   igr_gf.GetTrueDofs(igrp);
+   Aigrp.SetSize(igrp.Size());
+
+   HypreParMatrix *A = NULL;
+   if (p_assembly)
+   {
+      MFEM_VERIFY(IGRMassPA != NULL,
+                  "IGR partial assembly operator is not initialized.");
+      IGRMassPA->Assemble();
+      LAGHOS_DEVICE_SYNC;
+      IGRMassPA->Mult(igrp, Aigrp);
+   }
+   else
+   {
+      AssembleIGRMassMatrix();
+      A = Migr.ParallelAssemble();
+      A->Mult(igrp, Aigrp);
+   }
+   delete A;
+
+   igr_rhs -= Aigrp;
+   digrp.SetFromTrueDofs(igr_rhs);
+
+   MFEM_VERIFY(C_epsilon != 0.0,
+               "C_epsilon must be nonzero for parabolic IGR scaling.");
+   MFEM_VERIFY(alpha != 0.0,
+               "alpha must be nonzero for parabolic IGR scaling.");
+   alpha_gf.ProjectCoefficient(*alpha_typePAcoeff);
+   const int size = digrp.Size();
+   const double scale = C_epsilon;
+   const double alpha_scale = alpha;
+   auto d_digrp = digrp.ReadWrite();
+   auto d_alpha = alpha_gf.Read();
+   mfem::forall(size, [=] MFEM_HOST_DEVICE (int i)
+   {
+      d_digrp[i] /= scale*sqrt(d_alpha[i]/alpha_scale);
+   });
+
+   digrp.GetMemory().SyncAlias(dS_dt.GetMemory(), digrp.Size());
+   LAGHOS_DEVICE_SYNC;
+   LAGHOS_CALI_MARK_END("SolveIGRPressRHS");
+   timer.sw_igr.Stop();
 }
 
 void LagrangianHydroOperator::CalcIGRP(Vector &S) const
@@ -1190,10 +1263,14 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    qdata_is_current = true;
    forcemat_is_assembled = false;
 
-   //Calculates IGR Pressure or 0 if !useIGR
-   Vector *S_p = const_cast<Vector*>(&S);
-   CalcIGRP(*S_p);
-   LAGHOS_DEVICE_SYNC;
+   const bool first_step = (t <= 0.0);
+   if (!parabolic || first_step)
+   {
+      // Calculates IGR Pressure or 0 if !useIGR.
+      Vector *S_p = const_cast<Vector*>(&S);
+      CalcIGRP(*S_p);
+      LAGHOS_DEVICE_SYNC;
+   }
 
    if (dim > 1 && p_assembly) { return qupdate->UpdateQuadratureData(S, qdata); }
 

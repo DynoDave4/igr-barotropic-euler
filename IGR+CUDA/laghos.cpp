@@ -62,6 +62,7 @@
 #include <sys/resource.h>
 #include <cmath>
 #include <chrono>
+#include <cstring>
 #include "laghos_IGR_solver.hpp"
 #include "fem/qinterp/eval.hpp"
 #include "fem/qinterp/det.hpp"
@@ -214,6 +215,7 @@ int main(int argc, char *argv[])
 
    //New IGR variables
    double alpha = 4.0;
+   double C_epsilon = 8.0*alpha;
    double stallIGR = -0.3;
    double e_reg = 0.0;
    bool useIGR = true;
@@ -222,11 +224,12 @@ int main(int argc, char *argv[])
    double visc_const = 250.1234;  // Viscosity constant i.e. A
    int visc_type = 3;  // 1 is Laghos Artificial Visc, 2 is const A, 3 is dx(A ||u|| + c)
    int alpha_type = 3; // 1 is const alpha, 2 is function, 3 is const*dx^2, 4 - min dx, 5 - max dx
-                       // 6 uses J^T J, 7 uses J J^T
+                       // 6 uses J^T J, 7 uses J J^T   ---> NOT implemented here 
    bool TestPrint = false;
    bool gfread = false;
    const char *ParaPre = "ParaView/";
    bool paraview = false;
+   bool parabolic = false;
    int frames = 100;
    double dtmax = -1;
 
@@ -336,7 +339,9 @@ int main(int argc, char *argv[])
    // New IGR Flags
    args.AddOption(&alpha, "-alpha", "--alpha",
                   "Alpha as the level of IGR");
-                  args.AddOption(&corner, "-corner", "--corner-blast", "-center",
+   args.AddOption(&C_epsilon, "-epsR", "--epsilon-ratio",
+                  "Epsilon as the level of parabolic calculation");
+   args.AddOption(&corner, "-corner", "--corner-blast", "-center",
                   "--center-blast", "Where does the shockwave start?");
    args.AddOption(&variance, "-var", "--variance",
                   "Variance of Gaussian shockwave");
@@ -361,16 +366,30 @@ int main(int argc, char *argv[])
    args.AddOption(&paraview, "-paraview", "--paraview-datafiles", "-no-paraview",
                   "--no-paraview-datafiles",
                   "Save data files for ParaView (paraview.org) visualization.");
+   args.AddOption(&parabolic, "-parabolic", "--parabolic-igr-calc", "-no-parabolic",
+                  "--no-parabolic-igr-calc",
+                  "Do we calculate IGR pressure with a conservation law?");
    args.AddOption(&frames, "-frames", "--frames",
                   "Number of ParaView frames.");
    args.AddOption(&dtmax, "-dtmax", "--dt-max",
                   "Sets max dt width if wanted.");   
+   bool C_epsilon_arg = false;
+   for (int i = 1; i < argc; i++)
+   {
+      if (strcmp(argv[i], "-epsR") == 0 ||
+          strcmp(argv[i], "--epsilon-ratio") == 0)
+      {
+         C_epsilon_arg = true;
+      }
+   }
    args.Parse();
    if (!args.Good())
    {
       if (Mpi::Root()) { args.PrintUsage(cout); }
       return 1;
    }
+   if (!C_epsilon_arg) { C_epsilon = 8.0*alpha; }
+   const bool requested_parabolic = parabolic;
 
    if (Mpi::Root())
    {
@@ -765,7 +784,8 @@ int main(int argc, char *argv[])
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q, useIGR,
-                                                alpha, alpha_type);
+                                                alpha, alpha_type, false,
+                                                C_epsilon);
    hydro.SetViscConst(visc_const);
    hydro.SetViscType(visc_type);
 
@@ -965,6 +985,12 @@ int main(int argc, char *argv[])
          }
          t_final = t;
          last_step = true;
+      }
+      if (requested_parabolic && !parabolic)
+      {
+         hydro.UpdateParabolic(true);
+         parabolic = true;
+         hydro.ResetQuadratureData();
       }
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the

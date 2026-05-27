@@ -120,6 +120,8 @@ protected:
    mutable HypreBoomerAMG amg_prec;
    mutable HypreSmoother jacobi_prec;
    double alpha = 0.001;
+   bool parabolic = false;
+   double C_epsilon = 128.0;
    int at = 1;
    mutable ParGridFunction alpha_gf;
    double visc_const = 0.0001;
@@ -212,11 +214,13 @@ public:
                            const bool visc, const bool vort, const bool pa,
                            const double cgt, const int cgiter, double ftz_tol,
                            const int order_q, bool useIGR_,
-                           double alpha_, int alpha_type_);
+                           double alpha_, int alpha_type_, bool parabolic_,
+                           double C_epsilon_);
    ~LagrangianHydroOperator();
 
    //New IGR Methods
    void UpdateUseIGR(bool val) { useIGR = val;  };
+   void UpdateParabolic(bool val) { parabolic = val; }
    void UpdateUseVisc(bool val) { 
              if (qupdate) { qupdate->UpdateUseVisc(val); }
              use_viscosity = val;  };
@@ -237,7 +241,9 @@ public:
 
    void SolveVelocityRHS(const Vector &S, Vector &dS_dt) const;
    void SolveEnergyRHS(const Vector &S, const Vector &v, Vector &dS_dt) const;
-   void SolveIGRPressRHS(const Vector &S, const Vector &v, Vector &dS_dt) const;
+   void SolveIGRPressRHS(const Vector &S, const ParGridFunction &v_gf,
+                         const ParGridFunction &igr_gf,
+                         Vector &dS_dt) const;
    void CalcIGRP(Vector &S) const;
    void UpdateMesh(const Vector &S) const;
 
