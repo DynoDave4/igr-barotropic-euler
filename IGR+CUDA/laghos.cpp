@@ -42,6 +42,17 @@
 //    p = 5  --> 2D Riemann problem, config. 12 of doi.org/10.1002/num.10025
 //    p = 6  --> 2D Riemann problem, config.  6 of doi.org/10.1002/num.10025
 //    p = 7  --> 2D Rayleigh-Taylor instability problem.
+//    p = 8  --> Linear C0 shock (not differentiable)
+//    p = 9  --> Gaussian Blast Wave
+//    p = 10 --> Smooth Sod Shock Tube
+//    p = 11 --> Mach Test (v0 = A sine(.))
+//    p = 12 --> NonSmooth Shock version of p=13
+//    p = 13 --> Smooth LeBlanc Tube
+//    p = 14 --> Shu Osher
+//    p = 15 --> Smooth Triple Point (controlled by -sharp)
+//    p = 16 --> Smooth Pressure Triple Point but gamma0, e0, rho0 discontinuous 
+//    p = 17 --> 1d Shock hits material
+//    p = 18 --> 3d Shock hits material
 //
 // Sample runs: see README.md, section 'Verification of Results'.
 //
@@ -83,7 +94,7 @@ using namespace mfem;
 // Choice for the problem setup.
 static int problem, dim;
 real_t Sx = 1, Sy = 1, Sz = 1;  // Sx was "length" in my previous code
-int sharpness = 100;
+int sharpness = 10;
 
 // Forward declarations.
 double e0(const Vector &);
@@ -216,7 +227,7 @@ int main(int argc, char *argv[])
    bool gfread = false;
    const char *ParaPre = "ParaView/";
    bool paraview = false;
-   int frames = 20;
+   int frames = 100;
    double dtmax = -1;
 
    #ifdef LAGHOS_USE_CALIPER
@@ -851,18 +862,21 @@ int main(int argc, char *argv[])
    double para_vis_dt = t_final / frames;
    double para_next_vis_time = 0.0;
    int para_vis_cycle = 0;
+   const int output_rs_levels = (rs_levels == 0) ? nx : rs_levels;
    std::string folder = std::string(ParaPre) + igr_folder + alpha_folder + "p" + std::to_string(problem);
    std::string run_name = "Laghos_" + std::to_string(problem) + "_" +
-                       std::to_string(rs_levels) + "_" +
+                       "dim" + std::to_string(dim) + "_" +
+                       std::to_string(output_rs_levels) + "_" +
                        std::to_string(order_v) +
                        std::to_string(order_e) +
                        std::to_string(ode_solver_type) +
                        std::to_string(visc_type) +
                        std::to_string(alpha_type) + "_" +
+                       std::to_string(sharpness) + "_" +
                        t_str + igr_suffix + visc_suffix;
 
    
-   ParaViewDataCollection pvdc("TestP9", &pmesh);
+   ParaViewDataCollection pvdc(run_name, &pmesh);
    if(paraview){
       pvdc.SetPrefixPath(folder);
       pvdc.SetLevelsOfDetail(order_v);
@@ -942,6 +956,16 @@ int main(int argc, char *argv[])
          ti--; continue;
       }
       else if (dt_est > 1.25 * dt) { dt *= 1.02; }
+      if(dtmax > 0 && dt >dtmax){ dt = dtmax;}
+      if (dt_est < 1e-7) {
+         if (Mpi::Root()) {
+            cout << "WARNING: dt_est = " << dt_est
+                 << " fell below 1e-7 at t = " << t
+                 << ". Stopping early." << endl;
+         }
+         t_final = t;
+         last_step = true;
+      }
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -1107,15 +1131,13 @@ int main(int argc, char *argv[])
    if (gfprint)
    {
       std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
-
-      if(rs_levels == 0){rs_levels = nx;}
       
-      if(Mpi::Root()){std::cout << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "\n";}
-      mesh_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_mesh";
-      rho_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_rho";
-      v_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_v";
-      e_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix << visc_suffix << "_e";
-      igr_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << sharpness << "_" << t_str << igr_suffix<< visc_suffix<< "_igr";
+      if(Mpi::Root()){std::cout << basename << igr_folder << alpha_folder << problem_folder << run_name << "\n";}
+      mesh_name << basename << igr_folder << alpha_folder << problem_folder << run_name << "_mesh";
+      rho_name  << basename << igr_folder << alpha_folder << problem_folder << run_name << "_rho";
+      v_name << basename << igr_folder << alpha_folder << problem_folder << run_name << "_v";
+      e_name << basename << igr_folder << alpha_folder << problem_folder << run_name << "_e";
+      igr_name  << basename << igr_folder << alpha_folder << problem_folder << run_name << "_igr";
       std::ofstream mesh_ofs(mesh_name.str().c_str());
       mesh_ofs.precision(8);
       pmesh.PrintAsOne(mesh_ofs);
@@ -1368,6 +1390,9 @@ double rho0(const Vector &x)
       case 16: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
                         : x(0) > 1.0 && ((x(1) < 1.5 && x(2) < 1.5) ||
                                          (x(1) > 1.5 && x(2) > 1.5)) ? 0.125 : 1.0;
+      case 17: return (dim == 2) ? (x(0) > 0.6 && x(1) > 0.5) ? 1.0 : 0.1
+                        : x(0) > 0.6 ? 1.0 : 0.1;
+      case 18: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1401,6 +1426,9 @@ double gamma_func(const Vector &x)
       case 16:
          if (dim == 1) { return (x(0) > 0.5) ? 1.4 : 1.5; }
          else { return (x(0) > 1.0 && x(1) <= 1.5) ? 1.4 : 1.5; }
+      case 17: return (dim == 2) ? (x(0) > 0.6 && x(1) > 0.5) ? 1.0 : 0.1
+                        : x(0) > 0.6 ? 1.0 : 0.1;
+      case 18: return 1.0; 
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1581,6 +1609,17 @@ double e0(const Vector &x)
          return lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
       } 
       case 16:
+      { 
+         
+         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         double smooth_e = lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
+         double smooth_rho = lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
+         double smooth_gamma = lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
+         double smooth_p = (smooth_gamma - 1)*smooth_rho*smooth_e;
+
+         return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
+      }
+      case 17:
       { 
          
          double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
