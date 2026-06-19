@@ -772,6 +772,7 @@ int main(int argc, char *argv[])
       case 14: break;
       case 15: S.HostRead(); break;
       case 16: S.HostRead(); break;
+      case 17: break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -1416,8 +1417,8 @@ double rho0(const Vector &x)
       case 16: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
                         : x(0) > 1.0 && ((x(1) < 1.5 && x(2) < 1.5) ||
                                          (x(1) > 1.5 && x(2) > 1.5)) ? 0.125 : 1.0;
-      case 17: return (dim == 2) ? (x(0) > 0.6 && x(1) > 0.5) ? 1.0 : 0.1
-                        : x(0) > 0.6 ? 1.0 : 0.1;
+      case 17: return (dim == 2) ? (x(0) > 0.5859372 && x(1) > 0.5) ? 1.0 : 0.1
+                        : 0.6 + 0.4*tanh(200*sharpness*(0.5859372-x(0)));
       case 18: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
@@ -1452,8 +1453,8 @@ double gamma_func(const Vector &x)
       case 16:
          if (dim == 1) { return (x(0) > 0.5) ? 1.4 : 1.5; }
          else { return (x(0) > 1.0 && x(1) <= 1.5) ? 1.4 : 1.5; }
-      case 17: return (dim == 2) ? (x(0) > 0.6 && x(1) > 0.5) ? 1.0 : 0.1
-                        : x(0) > 0.6 ? 1.0 : 0.1;
+      case 17: return (dim == 2) ? (x(0) > 0.6 && x(1) > 0.5) ? 1.5 : 1.3
+                       : 1.4 + 0.1*tanh(200*sharpness*(x(0)-0.5859372));
       case 18: return 1.0; 
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
@@ -1552,6 +1553,12 @@ void v0(const Vector &x, Vector &v)
       }
       case 15: v = 0.0; break;
       case 16: v = 0.0; break;
+      case 17:
+      {
+         v = 0.0;
+         v(0) = tanh(sharpness*(x(0) - 0.3)) + tanh(sharpness*(0.5 - x(0) ));
+         break;
+      }
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1647,14 +1654,8 @@ double e0(const Vector &x)
       }
       case 17:
       { 
-         
-         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
-         double smooth_e = lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
-         double smooth_rho = lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
-         double smooth_gamma = lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
-         double smooth_p = (smooth_gamma - 1)*smooth_rho*smooth_e;
-
-         return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
+         const double p0 = 1.0;
+         return p0 / (gamma_func(x) - 1.0) / rho0(x);
       }
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
