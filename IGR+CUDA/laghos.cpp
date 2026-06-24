@@ -1423,12 +1423,12 @@ double rho0(const Vector &x)
                         : 0.6 + 0.4*tanh(200*sharpness*(0.59375-x(0)));
       case 18:
       {
-         double rhohs = 3.0;
-         double rhoh0 = 1.0;
-         double rhol0 = 0.2;
+         double rho1 = 0.5;
+         double rho2 = 0.2;
+         double rho3 = 1.5;
          double lambda = 0.5 + 0.5*tanh(sharpness*(x(0)-2.5));
-         return (1-lambda)*((rhohs-rhoh0)/2.0*(1.0-tanh(sharpness*(x(0)-2.0))) + rhoh0) 
-         + lambda*((rhoh0-rhol0)/2.0*(1.0-tanh(sharpness*(x(0)-3.0-0.1*cos(2*M_PI*x(1)/3)))) + rhol0);
+         return (1-lambda)*((rho1-rho2)/2.0*(1.0-tanh(sharpness*(x(0)-Sx/4))) + rho2) 
+         + lambda*((rho2-rho3)/2.0*(1.0-tanh(sharpness*(x(0)-Sx*7/10+Sx/30*cos(2*M_PI*x(1)/Sy)))) + rho3);
       }
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
@@ -1574,8 +1574,8 @@ void v0(const Vector &x, Vector &v)
       {
          v = 0.0;
          double Us = 1.0;
-         v(0) = Us/2.0*(tanh(sharpness*(x(0) - 1.0))
-                        - tanh(sharpness*(x(0) - 2.0)));
+         v(0) = Us/2.0*(tanh(sharpness*(x(0) - Sx/8)/4)
+                        - tanh(sharpness*(x(0) - Sx*0.55)));
          break;
       }
       default: MFEM_ABORT("Bad number given for problem id!");
@@ -1674,9 +1674,9 @@ double e0(const Vector &x)
       }
       case 18:
       {
-         double phs = 3.0;
+         double phs = 4.5;
          double p0 = 1.0;
-         double smooth_p = (phs-p0)/2.0*(1.0-tanh(sharpness*(x(0)-2.0))) + p0;
+         double smooth_p = (phs-p0)/2.0*(1.0-tanh(sharpness*(x(0)-Sx/4))) + p0;
          return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
       }
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
