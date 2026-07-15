@@ -53,6 +53,8 @@
 //    p = 16 --> Smooth Pressure Triple Point but gamma0, e0, rho0 discontinuous 
 //    p = 17 --> 1d Shock hits material
 //    p = 18 --> Richtmeyer Meshkov
+//    p = 19 --> Case 17 with a monotone mesh-width material transition
+//    p = 20 --> Multiple Blasts
 //
 // Sample runs: see README.md, section 'Verification of Results'.
 //
@@ -60,9 +62,11 @@
 #include <fstream>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <cstring>
+#include <limits>
 #include "laghos_IGR_solver.hpp"
 #include "fem/qinterp/eval.hpp"
 #include "fem/qinterp/det.hpp"
@@ -96,6 +100,8 @@ using namespace mfem;
 static int problem, dim;
 real_t Sx = 1, Sy = 1, Sz = 1;  // Sx was "length" in my previous code
 int sharpness = 10;
+int material_transition_points = 4;
+double material_mesh_h[3] = {1.0, 1.0, 1.0};
 
 // Forward declarations.
 double e0(const Vector &);
@@ -103,6 +109,12 @@ double rho0(const Vector &);
 double gamma_func(const Vector &);
 void v0(const Vector &, Vector &);
 
+static double Case19Transition(double x, double x0, double h);
+static double Case19Density(const Vector &x);
+static double Case19Gamma(const Vector &x);
+static void Case19EnergyBounds(double &emin, double &emax);
+static void BoundGridFunction(ParGridFunction &gf, double min_val, double max_val);
+static void SetMaterialMeshSpacing(const ParMesh &pmesh);
 static void AssignMeshBdrAttrs2D(Mesh &, real_t, real_t);
 static void AssignMeshBdrAttrs3D(Mesh &, real_t, real_t, real_t, real_t);
 
@@ -119,11 +131,11 @@ double Gauss(double x) {return exp(-1*x*x); };
 class Gaussian : public mfem::Coefficient
 {
 private:
-   double var, h;
+   double var, h, cx, cy, cz;
 
 public:
-   Gaussian(double var_, double h_)
-      : var(var_), h(h_) {}
+   Gaussian(double var_, double h_, double cx_, double cy_, double cz_)
+      : var(var_), h(h_), cx(cx_), cy(cy_), cz(cz_) {}
 
    virtual double Eval(mfem::ElementTransformation &T,
                        const mfem::IntegrationPoint &ip)
@@ -132,8 +144,9 @@ public:
       T.Transform(ip, x);   // x = physical coordinates
 	  int dim = T.GetSpaceDim();
 	  double out = h;
+     double center[3] = {cx, cy, cz};
 	  for(int i=0; i<dim; i++){
-		  out *= Gauss((x[i] - 0.5) / sqrt(2*var)) / sqrt(2*3.141592*var);
+		  out *= Gauss((x[i] - center[i]) / sqrt(2*var)) / sqrt(2*3.141592*var);
 	  }
       return out;
    }
@@ -355,6 +368,10 @@ int main(int argc, char *argv[])
                   "Do we set background energy to something?");
    args.AddOption(&sharpness, "-sharp", "--sharpness",
                   "Sets the sharpness of the initial condition.");
+   args.AddOption(&material_transition_points, "-mpts",
+                  "--material-transition-points",
+                  "Number of mesh spacings used to spread the material "
+                  "discontinuity in problem 19.");
    args.AddOption(&visc_const, "-vc", "--visc-const",
                   "Sets the viscosity constant.");
    args.AddOption(&visc_type, "-vt", "--visc-type",
@@ -390,6 +407,9 @@ int main(int argc, char *argv[])
    }
    if (!C_epsilon_arg) { C_epsilon = 8.0*alpha; }
    const bool requested_parabolic = parabolic;
+   MFEM_VERIFY(material_transition_points > 0,
+               "The material transition width must be at least one mesh "
+               "spacing.");
 
    if (Mpi::Root())
    {
@@ -584,6 +604,12 @@ int main(int argc, char *argv[])
    ParMesh pmesh(MPI_COMM_WORLD, mesh, mpi_partitioning.GetData());
    mesh.Clear();
    for (int lev = 0; lev < rp_levels; lev++) { pmesh.UniformRefinement(); }
+   SetMaterialMeshSpacing(pmesh);
+   if (problem == 19 && myid == 0)
+   {
+      cout << "Problem 19 material transition width: "
+           << material_transition_points << " mesh spacing(s)." << endl;
+   }
 
    int NE = pmesh.GetNE(), ne_min, ne_max;
    MPI_Reduce(&NE, &ne_min, 1, MPI_INT, MPI_MIN, 0, pmesh.GetComm());
@@ -697,9 +723,10 @@ int main(int argc, char *argv[])
    FunctionCoefficient rho0_coeff(rho0);
    L2_FECollection l2_fec(order_e, dim);
    ParFiniteElementSpace l2_fes(&pmesh, &l2_fec);
-   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes), l2_one(&l2_fes);
+   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes), l2_one(&l2_fes), l2_be2(&l2_fes), l2_be3(&l2_fes);
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
+   if (problem == 19) { BoundGridFunction(rho0_gf, 0.2, 1.0); }
 
    double blast_position[] = {0.0, 0.0, 0.0};
    if(!corner){for(int i=0; i<3; i++){blast_position[i] = 0.5;}}
@@ -727,9 +754,26 @@ int main(int argc, char *argv[])
 	  ConstantCoefficient reg(e_reg);
 	  l2_one.ProjectCoefficient(reg);
 	  
-	  Gaussian smoothblast(variance, blast_energy);
+	  Gaussian smoothblast(variance, blast_energy, 
+              blast_position[0], blast_position[1], blast_position[2]);
       l2_e.ProjectCoefficient(smoothblast);
 	  l2_e += l2_one;
+   }
+   else if(problem == 20){
+     ConstantCoefficient reg(e_reg);
+	  l2_one.ProjectCoefficient(reg);
+	  
+	  Gaussian smoothblast1(2*variance, blast_energy*8, 0.35, 0.35, 0.35);
+     Gaussian smoothblast2(variance/2, blast_energy/2, 0.425, 0.68, 0.74);
+     Gaussian smoothblast3(variance, blast_energy*2, 0.65, 0.5, 0.575);
+     
+     l2_e.ProjectCoefficient(smoothblast1);
+     l2_be2.ProjectCoefficient(smoothblast2);
+     l2_be3.ProjectCoefficient(smoothblast3);
+	  l2_e += l2_one;
+     l2_e += l2_be2;
+     l2_e += l2_be3;
+
    }
    else
    {
@@ -737,6 +781,12 @@ int main(int argc, char *argv[])
       l2_e.ProjectCoefficient(e_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
+   if (problem == 19)
+   {
+      double e_min, e_max;
+      Case19EnergyBounds(e_min, e_max);
+      BoundGridFunction(e_gf, e_min, e_max);
+   }
    // Sync the data location of e_gf with its base, S
    e_gf.SyncAliasMemory(S);
 
@@ -774,6 +824,8 @@ int main(int argc, char *argv[])
       case 16: S.HostRead(); break;
       case 17: break;
       case 18: break;
+      case 19: break;
+      case 20: break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -886,6 +938,8 @@ int main(int argc, char *argv[])
    int para_vis_cycle = 0;
    const int output_rs_levels = (rs_levels == 0) ? nx : rs_levels;
    std::string folder = std::string(ParaPre) + igr_folder + alpha_folder + "p" + std::to_string(problem);
+   const std::string material_width_suffix =
+      (problem == 19) ? "_mpts" + std::to_string(material_transition_points) : "";
    std::string run_name = "Laghos_" + std::to_string(problem) + "_" +
                        "dim" + std::to_string(dim) + "_" +
                        std::to_string(output_rs_levels) + "_" +
@@ -894,7 +948,7 @@ int main(int argc, char *argv[])
                        std::to_string(ode_solver_type) +
                        std::to_string(visc_type) +
                        std::to_string(alpha_type) + "_" +
-                       std::to_string(sharpness) + "_" +
+                       std::to_string(sharpness) + material_width_suffix + "_" +
                        t_str + igr_suffix + visc_suffix;
 
    
@@ -1430,6 +1484,8 @@ double rho0(const Vector &x)
          return (1-lambda)*((rho1-rho2)/2.0*(1.0-tanh(sharpness*(x(0)-Sx/4))) + rho2) 
          + lambda*((rho2-rho3)/2.0*(1.0-tanh(sharpness*(x(0)-Sx*7/10+Sx/30*cos(2*M_PI*x(1)/Sy)))) + rho3);
       }
+      case 19: return Case19Density(x);
+      case 20: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1467,6 +1523,8 @@ double gamma_func(const Vector &x)
                                  + (0.5 + 0.5*tanh(200*sharpness*(x(0)-0.59375)))*(1.3 + 0.1*tanh(200*sharpness*(x(1)-0.5)))
                        : 1.4 + 0.1*tanh(200*sharpness*(x(0)-0.59375));
       case 18: return 1.4; 
+      case 19: return Case19Gamma(x);
+      case 20: return 1.4;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1567,7 +1625,7 @@ void v0(const Vector &x, Vector &v)
       case 17:
       {
          v = 0.0;
-         v(0) = tanh(sharpness*(x(0) - 0.3)) + tanh(sharpness*(0.5 - x(0) ));
+         v(0) = tanh(50*(x(0) - 0.3)) + tanh(50*(0.5 - x(0)));
          break;
       }
       case 18:
@@ -1578,6 +1636,13 @@ void v0(const Vector &x, Vector &v)
                         - tanh(sharpness*(x(0) - Sx*0.55)));
          break;
       }
+      case 19:
+      {
+         v = 0.0;
+         v(0) = tanh(50*(x(0) - 0.3)) + tanh(50*(0.5 - x(0)));
+         break;
+      }
+      case 20: v = 0.0; break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1679,7 +1744,119 @@ double e0(const Vector &x)
          double smooth_p = (phs-p0)/2.0*(1.0-tanh(sharpness*(x(0)-Sx/4))) + p0;
          return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
       }
+      case 19:
+      {
+         const double p0 = 1.0;
+         return p0 / (gamma_func(x) - 1.0) / rho0(x);
+      }
+      case 20: return 0.0; // This case in initialized in main().
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
+   }
+}
+
+static double Case19Transition(double x, double x0, double h)
+{
+   const double width = material_transition_points*h;
+   if (width <= 0.0) { return (x < x0) ? 0.0 : 1.0; }
+
+   const double t = (x - (x0 - 0.5*width)) / width;
+   if (t <= 0.0) { return 0.0; }
+   if (t >= 1.0) { return 1.0; }
+   return t;
+}
+
+static double Case19Density(const Vector &x)
+{
+   const double sx = Case19Transition(x(0), 0.59375, material_mesh_h[0]);
+   if (dim == 2)
+   {
+      const double sy = Case19Transition(x(1), 0.5, material_mesh_h[1]);
+      const double right_density = (1.0 - sy)*0.6 + sy*0.2;
+      return (1.0 - sx)*1.0 + sx*right_density;
+   }
+   return (1.0 - sx)*1.0 + sx*0.2;
+}
+
+static double Case19Gamma(const Vector &x)
+{
+   const double sx = Case19Transition(x(0), 0.59375, material_mesh_h[0]);
+   if (dim == 2)
+   {
+      const double sy = Case19Transition(x(1), 0.5, material_mesh_h[1]);
+      const double right_gamma = (1.0 - sy)*1.2 + sy*1.4;
+      return (1.0 - sx)*1.3 + sx*right_gamma;
+   }
+   return (1.0 - sx)*1.3 + sx*1.5;
+}
+
+static void Case19EnergyBounds(double &emin, double &emax)
+{
+   emin = std::numeric_limits<double>::infinity();
+   emax = 0.0;
+
+   const double states_1d[][2] = {{1.0, 1.3}, {0.2, 1.5}};
+   const double states_2d[][2] = {{1.0, 1.3}, {0.6, 1.2}, {0.2, 1.4}};
+   const double (*states)[2] = (dim == 2) ? states_2d : states_1d;
+   const int num_states = (dim == 2) ? 3 : 2;
+
+   for (int i = 0; i < num_states; i++)
+   {
+      const double rho = states[i][0];
+      const double gamma = states[i][1];
+      const double e = 1.0 / ((gamma - 1.0)*rho);
+      emin = std::min(emin, e);
+      emax = std::max(emax, e);
+   }
+}
+
+static void BoundGridFunction(ParGridFunction &gf, double min_val, double max_val)
+{
+   gf.HostReadWrite();
+   for (int i = 0; i < gf.Size(); i++)
+   {
+      if (gf(i) < min_val) { gf(i) = min_val; }
+      else if (gf(i) > max_val) { gf(i) = max_val; }
+   }
+}
+
+static void SetMaterialMeshSpacing(const ParMesh &pmesh)
+{
+   const double inf = std::numeric_limits<double>::infinity();
+   double local_min[3] = {inf, inf, inf};
+   Array<int> vertices;
+
+   for (int e = 0; e < pmesh.GetNE(); e++)
+   {
+      pmesh.GetElementVertices(e, vertices);
+      double min_coord[3] = {inf, inf, inf};
+      double max_coord[3] = {-inf, -inf, -inf};
+
+      for (int i = 0; i < vertices.Size(); i++)
+      {
+         const real_t *coord = pmesh.GetVertex(vertices[i]);
+         for (int d = 0; d < pmesh.Dimension(); d++)
+         {
+            min_coord[d] = std::min(min_coord[d], coord[d]);
+            max_coord[d] = std::max(max_coord[d], coord[d]);
+         }
+      }
+
+      for (int d = 0; d < pmesh.Dimension(); d++)
+      {
+         const double extent = max_coord[d] - min_coord[d];
+         if (extent > 0.0) { local_min[d] = std::min(local_min[d], extent); }
+      }
+   }
+
+   double global_min[3];
+   MPI_Allreduce(local_min, global_min, 3, MPI_DOUBLE, MPI_MIN, pmesh.GetComm());
+
+   for (int d = 0; d < pmesh.Dimension(); d++)
+   {
+      if (std::isfinite(global_min[d]) && global_min[d] > 0.0)
+      {
+         material_mesh_h[d] = global_min[d];
+      }
    }
 }
 
