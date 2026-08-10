@@ -900,6 +900,7 @@ int main(int argc, char *argv[])
    ode_solver->Init(hydro);
    hydro.ResetTimeStepEstimate();
    double t = 0.0, dt = hydro.GetTimeStepEstimate(S), t_old;
+   if(dtmax > 0 && dt >dtmax){ dt = dtmax;}
    bool last_step = false;
    int steps = 0;
    BlockVector S_old(S);

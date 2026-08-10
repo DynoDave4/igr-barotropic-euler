@@ -204,6 +204,59 @@ public:
    }
 };
 
+class Alpha8 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha8(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      // Set integration point (needed for Jacobian)
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const double detJ = J.Det();
+      const int dim = J.Height(); // spatial dimension
+
+      // Compute h^2 ~ (volume)^(2/d)
+      const double h2 = pow(fabs(detJ), 2.0 / dim);
+
+      //std::cout <<  alpha * h2 << ", " << alpha << std::endl;
+
+      return alpha * h2;
+   }
+};
+
+class Alpha9 : public Coefficient
+{
+private:
+   double alpha;
+
+public:
+   Alpha9(double a) : alpha(a) {}
+
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      // Set integration point (needed for Jacobian)
+      T.SetIntPoint(&ip);
+
+      const DenseMatrix &J = T.Jacobian();
+      const double detJ = J.Det();
+      const int dim = J.Height(); // spatial dimension
+
+      // Compute h^2 ~ (volume)^(2/d)
+      const double h2 = pow(fabs(detJ), 2.0 / dim);
+
+      //std::cout <<  alpha * h2 << ", " << alpha << std::endl;
+
+      return alpha * h2;
+   }
+};
 
 // Try anisotropic alpha where we put it inside the trace and alpha <-> G4
 // alpha (tr^2[Du] + tr[Du^2]) <-> tr^2[sqrt(alpha) Du] + tr(sqrt(alpha)[Du])^2
@@ -257,9 +310,10 @@ static Coefficient *CreateScalarAlphaCoefficient(int at, double alpha,
       case 3: return new Alpha3(alpha);
       case 4: return new Alpha4(alpha);
       case 5: return new Alpha5(alpha);
+      case 8: return new Alpha8(alpha);
+      case 9: return new Alpha9(alpha);
       default:
-         MFEM_ABORT("IGR PA/full Migr scalar operator supports alpha types 1-5. "
-                    "Types 6 and 7 need a matrix-coefficient IGR operator.");
+         MFEM_ABORT("IGR PA/full Migr scalar operator supports alpha types 1-5, 8,9 but not currently Cauchy-Green");
          return NULL;
    }
 }
@@ -948,7 +1002,7 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    cg_igr.SetRelTol(1e-6);
    cg_igr.SetAbsTol(0.0);
    cg_igr.SetPrintLevel(-1);
-   cg_igr.SetMaxIter(5);
+   cg_igr.SetMaxIter(10);
    if(t < 0.00001){cg_igr.SetMaxIter(500);}
 
    LAGHOS_DEVICE_SYNC;
@@ -1404,6 +1458,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
 
                if (visc_type == 1)
                {
+                  visc_coeff *= visc_const;
                   stress.Add(visc_coeff, sgrad_v);
                }
                else if (visc_type == 2 && visc_const > 0.0)
@@ -1417,6 +1472,24 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                   v.GetVectorValue(*T, ip, vel);
                   visc_coeff = rho * h * h * visc_const *
                                (vel.Norml2() + sound_speed);
+                  stress.Add(visc_coeff, sgrad_v);
+               }
+               else if (visc_type == 4 && visc_const > 0.0)
+               {
+                  visc_coeff = rho * h * h * visc_const * sgrad_v.FNorm();
+                               //(vel.Norml2() + sound_speed);
+                  stress.Add(visc_coeff, sgrad_v);
+               }
+               else if (visc_type == 5 && visc_const > 0.0)
+               {
+                  visc_coeff = 2.0 * rho * h * h * 1 * visc_const;
+                               //(vel.Norml2() + sound_speed);
+                  stress.Add(visc_coeff, sgrad_v);
+               }
+               else if (visc_type == 6 && visc_const > 0.0)
+               {
+                  visc_coeff = 2.0 * rho * h * h * fabs(mu) * visc_const;
+                               //(vel.Norml2() + sound_speed);
                   stress.Add(visc_coeff, sgrad_v);
                }
                else
