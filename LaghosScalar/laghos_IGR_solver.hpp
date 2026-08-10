@@ -14,23 +14,49 @@
 // software, applications, hardware, advanced system engineering and early
 // testbed platforms, in support of the nation's exascale computing imperative.
 
-#ifndef MFEM_LAGHOS_SOLVER_HPP
-#define MFEM_LAGHOS_SOLVER_HPP
+#ifndef MFEM_LAGHOS_SOLVER
+#define MFEM_LAGHOS_SOLVER
 
 #include "mfem.hpp"
-#include "laghos_assembly_IGR.hpp"
-#include "laghos_solver.hpp"
+#include "laghos_IGR_assembly.hpp"
 
 #ifdef MFEM_USE_MPI
 
 namespace mfem
 {
 
+
 namespace hydrodynamics
 {
 
+/// Visualize the given parallel grid function, using a GLVis server on the
+/// specified host and port. Set the visualization window title, and optionally,
+/// its geometry.
+void VisualizeField(socketstream &sock, const char *vishost, int visport,
+                    ParGridFunction &gf, const char *title,
+                    int x = 0, int y = 0, int w = 400, int h = 400,
+                    bool vec = false);
 
-class QUpdateIGR
+struct TimingData
+{
+   // Total times for all major computations:
+   // CG solves (H1 and L2) / force RHS assemblies / quadrature computations.
+   StopWatch sw_cgH1, sw_cgL2, sw_force, sw_qdata, sw_igr;
+
+   // Store the number of dofs of the corresponding local CG
+   const HYPRE_Int L2dof;
+
+   // These accumulate the total processed dofs or quad points:
+   // #(CG iterations) for the L2 CG solve.
+   // #quads * #(RK sub steps) for the quadrature data computations.
+   HYPRE_Int H1iter, L2iter;
+   HYPRE_Int quad_tstep;
+
+   TimingData(const HYPRE_Int l2d) :
+      L2dof(l2d), H1iter(0), L2iter(0), quad_tstep(0) { }
+};
+
+class QUpdate
 {
 private:
    const int dim, vdim, NQ, NE, Q1D;
@@ -40,59 +66,72 @@ private:
    TimingData *timer;
    const IntegrationRule &ir;
    ParFiniteElementSpace &H1, &H1_scal, &L2;
-   const Operator *H1R;
-   Vector q_dt_est, q_e, e_vec, q_dx, q_dv, q_igr;
-   const QuadratureInterpolator *q1,*q2,*q3;    //q3 is for igr
+   const Operator *H1R, *H1_scalR;
+   Vector q_dt_est, q_e, q_igr, e_vec, igrR_vec, q_dx, q_dv, q_v;
+   const QuadratureInterpolator *q1,*q2,*q_igr_interp;
    const ParGridFunction &gamma_gf;
    double alpha = 0.001;
+   double visc_const = 0.0001;
+   int visc_type = 3;
 public:
-   QUpdateIGR(const int d, const int ne, const int q1d,
+   QUpdate(const int d, const int ne, const int q1d,
            const bool visc, const bool vort,
            const double cfl, TimingData *t,
            const ParGridFunction &gamma_gf,
            const IntegrationRule &ir,
-           ParFiniteElementSpace &h1, ParFiniteElementSpace &h1scal, 
-		   ParFiniteElementSpace &l2, double alpha_):
+           ParFiniteElementSpace &h1, ParFiniteElementSpace &h1scal,
+           ParFiniteElementSpace &l2, double alpha_,
+           double visc_const_, int visc_type_):
       dim(d), vdim(h1.GetVDim()),
       NQ(ir.GetNPoints()), NE(ne), Q1D(q1d),
       use_viscosity(visc), use_vorticity(vort), cfl(cfl),
       timer(t), ir(ir), H1(h1), H1_scal(h1scal), L2(l2),
       H1R(H1.GetElementRestriction(ElementDofOrdering::LEXICOGRAPHIC)),
+      H1_scalR(H1_scal.GetElementRestriction(ElementDofOrdering::LEXICOGRAPHIC)),
       q_dt_est(NE*NQ),
       q_e(NE*NQ),
-	  q_igr(NE*NQ),   //New IGR vector
+      q_igr(NE*NQ),
       e_vec(NQ*NE*vdim),
+      igrR_vec(H1_scal.GetFE(0)->GetDof()*NE),
       q_dx(NQ*NE*vdim*vdim),
       q_dv(NQ*NE*vdim*vdim),
       q1(H1.GetQuadratureInterpolator(ir)),
       q2(L2.GetQuadratureInterpolator(ir)),
-	  q3(H1_scal.GetQuadratureInterpolator(ir)),
-      gamma_gf(gamma_gf), alpha(alpha_) { }
-	  
+      q_igr_interp(H1_scal.GetQuadratureInterpolator(ir)),
+      gamma_gf(gamma_gf), alpha(alpha_),
+      visc_const(visc_const_), visc_type(visc_type_) { }
+
+   
    void UpdateUseVisc(bool val) { use_viscosity = val;  };
+   void SetViscConst(double vc) { visc_const = vc; }
+   void SetViscType(int vt) { visc_type = vt; }
 
    void UpdateQuadratureData(const Vector &S, QuadratureData &qdata);
-   void UpdateQuadratureDataIGR(const Vector &S, QuadratureDataIGR &qdata);
 };
 
 // Given a solutions state (x, v, e), this class performs all necessary
 // computations to evaluate the new slopes (dx_dt, dv_dt, de_dt).
-class LagrangianIGRHydroOperator : public TimeDependentOperator
+class LagrangianHydroOperator : public TimeDependentOperator
 {
 protected:
-   //IGR new data
-   mutable ParFiniteElementSpace H1_scal;
+   ParFiniteElementSpace &H1_scal;
    bool useIGR = true;
    mutable CGSolver cg_igr;
-   mutable HypreBoomerAMG amg_prec; //not used
+   mutable HypreBoomerAMG amg_prec;
+   mutable HypreSmoother jacobi_prec;
    double alpha = 0.001;
+   bool parabolic = false;
+   double C_epsilon = 128.0;
    int at = 1;
    mutable ParGridFunction alpha_gf;
    double visc_const = 0.0001;
    int visc_type = 3;
    mutable Vector Bigr, Xigr;
-   
-   //Original Lag
+   IGRPAOperator *IGRMassPA;
+   Coefficient *massPAcoeff, *alpha_typePAcoeff;
+   RatioCoefficient *inv_mass, *alpha_over_mass;
+   mutable ParBilinearForm Migr;
+
    ParFiniteElementSpace &H1, &L2;
    mutable ParFiniteElementSpace H1c;
    ParMesh *pmesh;
@@ -126,7 +165,6 @@ protected:
    // These values are recomputed at each time step.
    const int Q1D;
    mutable QuadratureData qdata;
-   //mutable QuadratureDataIGR qdataIGR;
    mutable bool qdata_is_current, forcemat_is_assembled;
    // Force matrix that combines the kinematic and thermodynamic spaces. It is
    // assembled in each time step and then it is used to compute the final
@@ -137,11 +175,11 @@ protected:
    // Mass matrices done through partial assembly:
    // velocity (coupled H1 assembly) and energy (local L2 assemblies).
    MassPAOperator *VMassPA, *EMassPA;
-   OperatorJacobiSmoother *VMassPA_Jprec;
+   OperatorJacobiSmoother *VMassPA_Jprec, *IGRMassPA_Jprec;
    // Linear solver for energy.
    CGSolver CG_VMass, CG_EMass;
    mutable TimingData timer;
-   mutable QUpdateIGR *qupdate;
+   mutable QUpdate *qupdate;
    mutable Vector X, B, one, rhs, e_rhs;
    mutable ParGridFunction rhs_c_gf, dvc_gf;
    mutable Array<int> c_tdofs[3];
@@ -157,11 +195,13 @@ protected:
       }
    }
 
+
    void UpdateQuadratureData(const Vector &S) const;
    void AssembleForceMatrix() const;
+   void AssembleIGRMassMatrix() const;
 
 public:
-   LagrangianIGRHydroOperator(const int size,
+   LagrangianHydroOperator(const int size,
                            ParFiniteElementSpace &h1_fes,
                            ParFiniteElementSpace &h1_fescalar,
                            ParFiniteElementSpace &l2_fes,
@@ -173,20 +213,25 @@ public:
                            const double cfl,
                            const bool visc, const bool vort, const bool pa,
                            const double cgt, const int cgiter, double ftz_tol,
-                           const int order_q, bool useIGR_);
-   ~LagrangianIGRHydroOperator();
-   
+                           const int order_q, bool useIGR_,
+                           double alpha_, int alpha_type_, bool parabolic_,
+                           double C_epsilon_);
+   ~LagrangianHydroOperator();
+
    //New IGR Methods
    void UpdateUseIGR(bool val) { useIGR = val;  };
+   void UpdateParabolic(bool val) { parabolic = val; }
    void UpdateUseVisc(bool val) { 
              if (qupdate) { qupdate->UpdateUseVisc(val); }
              use_viscosity = val;  };
    void SetAlpha(double a){ alpha = a; }
    void SetAlphaType(int a){ at = a; }
-   void SetViscConst(double vc){ visc_const = vc; }
-   void SetViscType(int vt){ visc_type = vt; }
-   
-   
+   void SetViscConst(double vc){
+             if (qupdate) { qupdate->SetViscConst(vc); }
+             visc_const = vc; }
+   void SetViscType(int vt){
+             if (qupdate) { qupdate->SetViscType(vt); }
+             visc_type = vt; }
 
    // Solve for dx_dt, dv_dt and de_dt.
    virtual void Mult(const Vector &S, Vector &dS_dt) const;
@@ -194,8 +239,12 @@ public:
    virtual MemoryClass GetMemoryClass() const
    { return Device::GetMemoryClass(); }
 
-   void SolveVelocity(const Vector &S, Vector &dS_dt) const;
-   void SolveEnergy(const Vector &S, const Vector &v, Vector &dS_dt) const;
+   void SolveVelocityRHS(const Vector &S, Vector &dS_dt) const;
+   void SolveEnergyRHS(const Vector &S, const Vector &v, Vector &dS_dt) const;
+   void SolveIGRPressRHS(const Vector &S, const ParGridFunction &v_gf,
+                         const ParGridFunction &igr_gf,
+                         Vector &dS_dt) const;
+   void CalcIGRP(Vector &S) const;
    void UpdateMesh(const Vector &S) const;
 
    // Calls UpdateQuadratureData to compute the new qdata.dt_estimate.
@@ -215,10 +264,55 @@ public:
    void PrintTimingData(bool IamRoot, int steps, const bool fom) const;
 };
 
+// TaylorCoefficient used in the 2D Taylor-Green problem.
+class TaylorCoefficient : public Coefficient
+{
+public:
+   virtual double Eval(ElementTransformation &T, const IntegrationPoint &ip)
+   {
+      Vector x(2);
+      T.Transform(ip, x);
+      return 3.0 / 8.0 * M_PI * ( cos(3.0*M_PI*x(0)) * cos(M_PI*x(1)) -
+                                  cos(M_PI*x(0))     * cos(3.0*M_PI*x(1)) );
+   }
+};
 
+// Acceleration source coefficient used in the 2D Rayleigh-Taylor problem.
+class RTCoefficient : public VectorCoefficient
+{
+public:
+   RTCoefficient(int dim) : VectorCoefficient(dim) { }
+   using VectorCoefficient::Eval;
+   virtual void Eval(Vector &V, ElementTransformation &T,
+                     const IntegrationPoint &ip)
+   {
+      V = 0.0; V(1) = -1.0;
+   }
+};
 
 } // namespace hydrodynamics
 
+class HydroODESolver : public ODESolver
+{
+protected:
+   hydrodynamics::LagrangianHydroOperator *hydro_oper;
+public:
+   HydroODESolver() : hydro_oper(NULL) { }
+   virtual void Init(TimeDependentOperator&);
+   virtual void Step(Vector&, double&, double&)
+   { MFEM_ABORT("Time stepping is undefined."); }
+};
+
+class RK2AvgSolver : public HydroODESolver
+{
+protected:
+   Vector V;
+   BlockVector dS_dt, S0;
+public:
+   RK2AvgSolver() { }
+   virtual void Init(TimeDependentOperator &_f);
+   virtual void Step(Vector &S, double &t, double &dt);
+};
 
 } // namespace mfem
 

@@ -42,9 +42,19 @@
 //    p = 5  --> 2D Riemann problem, config. 12 of doi.org/10.1002/num.10025
 //    p = 6  --> 2D Riemann problem, config.  6 of doi.org/10.1002/num.10025
 //    p = 7  --> 2D Rayleigh-Taylor instability problem.
-
-//    p = 15 --> Smoothed triple point
-//    p = 16 --> Smoothed triple point but density not smoothed
+//    p = 8  --> Linear C0 shock (not differentiable)
+//    p = 9  --> Gaussian Blast Wave
+//    p = 10 --> Smooth Sod Shock Tube
+//    p = 11 --> Mach Test (v0 = A sine(.))
+//    p = 12 --> NonSmooth Shock version of p=13
+//    p = 13 --> Smooth LeBlanc Tube
+//    p = 14 --> Shu Osher
+//    p = 15 --> Smooth Triple Point (controlled by -sharp)
+//    p = 16 --> Smooth Pressure Triple Point but gamma0, e0, rho0 discontinuous 
+//    p = 17 --> 1d Shock hits material
+//    p = 18 --> Richtmeyer Meshkov
+//    p = 19 --> Case 17 with a monotone mesh-width material transition
+//    p = 20 --> Multiple Blasts
 //
 // Sample runs: see README.md, section 'Verification of Results'.
 //
@@ -52,9 +62,11 @@
 #include <fstream>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <algorithm>
 #include <cmath>
 #include <chrono>
-#include "laghos_solver.hpp"
+#include <cstring>
+#include <limits>
 #include "laghos_IGR_solver.hpp"
 #include "fem/qinterp/eval.hpp"
 #include "fem/qinterp/det.hpp"
@@ -69,19 +81,27 @@
 
 #if (defined(HYPRE_USING_UMPIRE) || defined(MFEM_USE_UMPIRE)) && (defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP))
 #define LAGHOS_USE_DEVICE_UMPIRE
+#define LAGHOS_DEVICE_ALLOCATOR_NAME "LAGHOS_DEVICE_POOL"
 #include <umpire/Umpire.hpp>
 #include <umpire/strategy/QuickPool.hpp>
+
+double getDeviceMemoryHighWatermark() {
+  auto &rm = umpire::ResourceManager::getInstance();
+  auto allocator = rm.getAllocator(LAGHOS_DEVICE_ALLOCATOR_NAME);
+  return ((double) allocator.getHighWatermark()) / (1024 * 1024 * 1024);
+}
 #endif
 
 using std::cout;
 using std::endl;
-//using namespace std;
 using namespace mfem;
 
 // Choice for the problem setup.
 static int problem, dim;
 real_t Sx = 1, Sy = 1, Sz = 1;  // Sx was "length" in my previous code
-int sharpness = 100;
+int sharpness = 10;
+int material_transition_points = 4;
+double material_mesh_h[3] = {1.0, 1.0, 1.0};
 
 // Forward declarations.
 double e0(const Vector &);
@@ -89,6 +109,12 @@ double rho0(const Vector &);
 double gamma_func(const Vector &);
 void v0(const Vector &, Vector &);
 
+static double Case19Transition(double x, double x0, double h);
+static double Case19Density(const Vector &x);
+static double Case19Gamma(const Vector &x);
+static void Case19EnergyBounds(double &emin, double &emax);
+static void BoundGridFunction(ParGridFunction &gf, double min_val, double max_val);
+static void SetMaterialMeshSpacing(const ParMesh &pmesh);
 static void AssignMeshBdrAttrs2D(Mesh &, real_t, real_t);
 static void AssignMeshBdrAttrs3D(Mesh &, real_t, real_t, real_t, real_t);
 
@@ -105,11 +131,11 @@ double Gauss(double x) {return exp(-1*x*x); };
 class Gaussian : public mfem::Coefficient
 {
 private:
-   double var, h;
+   double var, h, cx, cy, cz;
 
 public:
-   Gaussian(double var_, double h_)
-      : var(var_), h(h_) {}
+   Gaussian(double var_, double h_, double cx_, double cy_, double cz_)
+      : var(var_), h(h_), cx(cx_), cy(cy_), cz(cz_) {}
 
    virtual double Eval(mfem::ElementTransformation &T,
                        const mfem::IntegrationPoint &ip)
@@ -118,15 +144,36 @@ public:
       T.Transform(ip, x);   // x = physical coordinates
 	  int dim = T.GetSpaceDim();
 	  double out = h;
+     double center[3] = {cx, cy, cz};
 	  for(int i=0; i<dim; i++){
-		  out *= Gauss((x[i] - 0.5) / sqrt(2*var)) / sqrt(2*3.141592*var);
+		  out *= Gauss((x[i] - center[i]) / sqrt(2*var)) / sqrt(2*3.141592*var);
 	  }
       return out;
    }
 };
 
+
+#ifdef LAGHOS_USE_CALIPER
+   static void RecordAdiakMetadata(int dim, const char *mesh_file, int elem_per_mpi,
+                                 int nx, int ny, int nz, double blast_energy,
+                                 double Sx, double Sy, double Sz,
+                                 int rs_levels, int rp_levels, int problem,
+                                 int order_v, int order_e, int order_q,
+                                 int ode_solver_type, double t_final, double cfl,
+                                 double cg_tol, double ftz_tol, double delta_tol,
+                                 int cg_max_iter, int max_tsteps,
+                                 bool p_assembly, bool impose_visc,
+                                 bool visualization, int vis_steps, bool visit,
+                                 bool gfprint, const char *basename,
+                                 const char *device, bool check,
+                                 bool check_exact_sedov, bool mem_usage,
+                                 bool fom, bool gpu_aware_mpi, int dev_pool_size,
+                                 bool enable_nc, int dev);
+#endif
+
 int main(int argc, char *argv[])
 {
+
    //Start Timer
    auto start = std::chrono::high_resolution_clock::now();
 
@@ -151,7 +198,7 @@ int main(int argc, char *argv[])
    int order_v = 2;
    int order_e = 1;
    int order_q = -1;
-   int ode_solver_type = 4;
+   int ode_solver_type = 3;
    double t_final = 0.6;
    double cfl = 0.5;
    double cg_tol = 1e-8;
@@ -162,10 +209,10 @@ int main(int argc, char *argv[])
    bool p_assembly = false;
    bool impose_visc = false;
    bool visualization = false;
-   int vis_steps = 10;
+   int vis_steps = 5;
    bool visit = false;
    bool gfprint = false;
-   const char *basename = "results/";
+   const char *basename = "results/Laghos";
    const char *device = "cpu";
    bool check = false;
    bool check_exact_sedov = false;
@@ -174,11 +221,14 @@ int main(int argc, char *argv[])
    bool gpu_aware_mpi = false;
    int dev = 0;
    int dev_pool_size = 4;
+
    double blast_energy = 1;
+
    bool enable_nc = true;
 
    //New IGR variables
-   double alpha = 0.001;
+   double alpha = 4.0;
+   double C_epsilon = 8.0*alpha;
    double stallIGR = -0.3;
    double e_reg = 0.0;
    bool useIGR = true;
@@ -187,13 +237,24 @@ int main(int argc, char *argv[])
    double visc_const = 250.1234;  // Viscosity constant i.e. A
    int visc_type = 3;  // 1 is Laghos Artificial Visc, 2 is const A, 3 is dx(A ||u|| + c)
    int alpha_type = 3; // 1 is const alpha, 2 is function, 3 is const*dx^2, 4 - min dx, 5 - max dx
-                       // 6 uses J^T J, 7 uses J J^T
+                       // 6 uses J^T J, 7 uses J J^T   ---> NOT implemented here 
    bool TestPrint = false;
    bool gfread = false;
    const char *ParaPre = "ParaView/";
    bool paraview = false;
-   int frames = 20;
+   bool parabolic = false;
+   int frames = 100;
    double dtmax = -1;
+
+   #ifdef LAGHOS_USE_CALIPER
+      cali_config_set("CALI_CALIPER_ATTRIBUTE_DEFAULT_SCOPE", "process");
+      CALI_CXX_MARK_FUNCTION;
+   
+      MPI_Comm adiak_mpi_comm = MPI_COMM_WORLD;
+      void* adiak_mpi_comm_ptr = &adiak_mpi_comm;
+      adiak::init(adiak_mpi_comm_ptr);
+      adiak::collect_all();
+   #endif
 
    OptionsParser args(argc, argv);
    args.AddOption(&dim, "-dim", "--dimension", "Dimension of the problem.");
@@ -291,7 +352,9 @@ int main(int argc, char *argv[])
    // New IGR Flags
    args.AddOption(&alpha, "-alpha", "--alpha",
                   "Alpha as the level of IGR");
-                  args.AddOption(&corner, "-corner", "--corner-blast", "-center",
+   args.AddOption(&C_epsilon, "-epsR", "--epsilon-ratio",
+                  "Epsilon as the level of parabolic calculation");
+   args.AddOption(&corner, "-corner", "--corner-blast", "-center",
                   "--center-blast", "Where does the shockwave start?");
    args.AddOption(&variance, "-var", "--variance",
                   "Variance of Gaussian shockwave");
@@ -305,6 +368,10 @@ int main(int argc, char *argv[])
                   "Do we set background energy to something?");
    args.AddOption(&sharpness, "-sharp", "--sharpness",
                   "Sets the sharpness of the initial condition.");
+   args.AddOption(&material_transition_points, "-mpts",
+                  "--material-transition-points",
+                  "Number of mesh spacings used to spread the material "
+                  "discontinuity in problem 19.");
    args.AddOption(&visc_const, "-vc", "--visc-const",
                   "Sets the viscosity constant.");
    args.AddOption(&visc_type, "-vt", "--visc-type",
@@ -316,18 +383,49 @@ int main(int argc, char *argv[])
    args.AddOption(&paraview, "-paraview", "--paraview-datafiles", "-no-paraview",
                   "--no-paraview-datafiles",
                   "Save data files for ParaView (paraview.org) visualization.");
+   args.AddOption(&parabolic, "-parabolic", "--parabolic-igr-calc", "-no-parabolic",
+                  "--no-parabolic-igr-calc",
+                  "Do we calculate IGR pressure with a conservation law?");
    args.AddOption(&frames, "-frames", "--frames",
                   "Number of ParaView frames.");
    args.AddOption(&dtmax, "-dtmax", "--dt-max",
-                  "Sets max dt width if wanted.");
-
+                  "Sets max dt width if wanted.");   
+   bool C_epsilon_arg = false;
+   for (int i = 1; i < argc; i++)
+   {
+      if (strcmp(argv[i], "-epsR") == 0 ||
+          strcmp(argv[i], "--epsilon-ratio") == 0)
+      {
+         C_epsilon_arg = true;
+      }
+   }
    args.Parse();
    if (!args.Good())
    {
       if (Mpi::Root()) { args.PrintUsage(cout); }
       return 1;
    }
-   if (Mpi::Root()) { args.PrintOptions(cout); }
+   if (!C_epsilon_arg) { C_epsilon = 8.0*alpha; }
+   const bool requested_parabolic = parabolic;
+   MFEM_VERIFY(material_transition_points > 0,
+               "The material transition width must be at least one mesh "
+               "spacing.");
+
+   if (Mpi::Root())
+   {
+      args.PrintOptions(cout);
+
+      #ifdef LAGHOS_USE_CALIPER
+         RecordAdiakMetadata(dim, mesh_file, elem_per_mpi, nx, ny, nz,
+                          blast_energy, Sx, Sy, Sz, rs_levels, rp_levels,
+                          problem, order_v, order_e, order_q, ode_solver_type,
+                          t_final, cfl, cg_tol, ftz_tol, delta_tol,
+                          cg_max_iter, max_tsteps, p_assembly, impose_visc,
+                          visualization, vis_steps, visit, gfprint, basename,
+                          device, check, check_exact_sedov, mem_usage, fom,
+                          gpu_aware_mpi, dev_pool_size, enable_nc, dev);
+      #endif
+   }
 
    if (check_exact_sedov)
    {
@@ -337,20 +435,9 @@ int main(int argc, char *argv[])
       MFEM_VERIFY(strncmp(mesh_file, "default", 7) == 0, "check: mesh_file");
    }
 
-#ifdef LAGHOS_USE_CALIPER
-   cali_config_set("CALI_CALIPER_ATTRIBUTE_DEFAULT_SCOPE", "process");
-   CALI_CXX_MARK_FUNCTION;
-
-   MPI_Comm adiak_mpi_comm = MPI_COMM_WORLD;
-   void* adiak_mpi_comm_ptr = &adiak_mpi_comm;
-   adiak::init(adiak_mpi_comm_ptr);
-   adiak::launchdate();
-   adiak::jobsize();
-#endif
-
 #ifdef LAGHOS_USE_DEVICE_UMPIRE
    auto &rm = umpire::ResourceManager::getInstance();
-   const char * allocator_name = "laghos_device_alloc";
+   const char * allocator_name = LAGHOS_DEVICE_ALLOCATOR_NAME;
    size_t umpire_dev_pool_size = ((size_t) dev_pool_size) * 1024 * 1024 * 1024;
    size_t umpire_dev_block_size = 512;
    rm.makeAllocator<umpire::strategy::QuickPool>(allocator_name,
@@ -408,13 +495,6 @@ int main(int argc, char *argv[])
    GRAD::Specialization<3,QVectorLayout::byNODES,0,3,5,8>::Add();
    MassIntegrator::AddSpecialization<3,4,8>();
 
-   //Read in grid functions
-   GridFunction vBgf, eBgf, rhoBgf;
-   H1_FECollection *H1FECser = nullptr;
-   L2_FECollection *L2FECser = nullptr;
-   FiniteElementSpace *L2FESpaceSer = nullptr;
-   FiniteElementSpace *H1FESpaceSer = nullptr;
-
    // On all processors, use the default builtin 1D/2D/3D mesh or read the
    // serial one given on the command line.
    Mesh mesh;
@@ -440,10 +520,9 @@ int main(int argc, char *argv[])
          switch (dim)
          {
             case 1:
-                  mesh.Transform([=](const Vector &x, Vector &y) { y[0] = x[0] * Sx; });
-                  mesh.GetBdrElement(0)->SetAttribute(1);
-                  mesh.GetBdrElement(1)->SetAttribute(1);
-
+               mesh.Transform([=](const Vector &x, Vector &y) { y[0] = x[0] * Sx; });
+               mesh.GetBdrElement(0)->SetAttribute(1);
+               mesh.GetBdrElement(1)->SetAttribute(1);
                break;
             case 2:
                mesh.Transform([=](const Vector &x, Vector &y)
@@ -468,117 +547,9 @@ int main(int argc, char *argv[])
       {
          if (dim == 1)
          {
-            if(gfread){
-                  std::ifstream file("data.csv");
-                  if (!file.is_open()) {
-                     MFEM_ABORT("Could not open file!");
-                  }
-
-                  std::string line;
-
-                  // --- Read and ignore header ---
-                  std::getline(file, line);
-
-                  std::vector<double> xB, rhoB, muB, EB, vB, pB, SigmaB, eB;
-
-                  // --- Read data rows ---
-                  while (std::getline(file, line)) {
-                     std::stringstream ss(line);
-                     std::string field;
-
-                     std::getline(ss, field, ',');
-                     xB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     rhoB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     muB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     EB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     vB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     pB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     SigmaB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     eB.push_back(std::stod(field));
-
-                     std::getline(ss, field, ',');
-                     SigmaB.push_back(std::stod(field));
-                  }
-
-                  std::cout << "Read " << xB.size() << " rows\n";
-
-                  int scale = pow(2, rs_levels);
-                  int UnscaledSize = xB.size();
-
-                  mesh = Mesh(Mesh::MakeCartesian1D(scale*(xB.size()-1)));
-                  mesh.GetBdrElement(0)->SetAttribute(1);
-                  mesh.GetBdrElement(1)->SetAttribute(1);
-
-                  //MFEM_VERIFY(xB.size() == mesh->GetNV(), "xB size must match number of mesh vertices");
-
-                  
-
-                  for (int i = 0; i < UnscaledSize-1; i++)
-                  { 
-                     for(int j = 0; j < scale; j++){
-                        mesh.GetVertex(scale*i + j)[0] = (scale - j)*xB[i]/scale + j*xB[i+1]/scale;
-                     }  
-                  }
-                  mesh.GetVertex(mesh.GetNV()-1)[0] = xB[xB.size()-1]; //Set right boundary values
-
-                  H1_FECollection fec_p1(1, mesh.Dimension());
-                  FiniteElementSpace fes_p1(&mesh, &fec_p1);
-                  MFEM_VERIFY(fes_p1.GetNDofs() == mesh.GetNV(), "H1 P1 DOFs should equal number of vertices");
-
-                  GridFunction v_p1(&fes_p1), e_p1(&fes_p1), rho_p1(&fes_p1);
-                  MFEM_VERIFY(scale*rhoB.size()-(scale-1) == rho_p1.Size(), "rhoB size must match H1 P1 DOFs");
-
-                  //Set grid function values
-                  for (int i = 0; i < UnscaledSize-1; i++)
-                  {
-                     for(int j = 0; j < scale; j++){
-                        v_p1(scale*i + j) = (scale - j)*vB[i]/scale + j*vB[i+1]/scale;
-                        e_p1(scale*i + j) = (scale - j)*eB[i]/scale + j*eB[i+1]/scale;
-                        rho_p1(scale*i + j) = (scale - j)*rhoB[i]/scale + j*rhoB[i+1]/scale;
-                     }
-                  }
-                  v_p1(rho_p1.Size()-1) = vB[UnscaledSize-1]; //Set right boundary values
-                  e_p1(rho_p1.Size()-1) = eB[UnscaledSize-1]; 
-                  rho_p1(rho_p1.Size()-1) = rhoB[UnscaledSize-1];
-
-                  //Serial Projection of read values
-                  L2FECser = new L2_FECollection(order_e, dim, BasisType::Positive); //Exactly the same as below
-                  H1FECser = new H1_FECollection(order_v, dim);
-                  L2FESpaceSer = new FiniteElementSpace(&mesh, L2FECser);
-                  H1FESpaceSer = new FiniteElementSpace(&mesh, H1FECser, mesh.Dimension());
-
-                  vBgf.SetSpace(H1FESpaceSer);
-                  eBgf.SetSpace(L2FESpaceSer);
-                  rhoBgf.SetSpace(L2FESpaceSer);
-                  
-                  rhoBgf.ProjectGridFunction(rho_p1);
-                  vBgf.ProjectGridFunction(v_p1);
-                  eBgf.ProjectGridFunction(e_p1);
-
-               } else {
-
-                  mesh = Mesh::MakeCartesian1D(nx, Sx);
-                  mesh.GetBdrElement(0)->SetAttribute(1);
-                  mesh.GetBdrElement(1)->SetAttribute(1);
-                  if(Sx != 1.0 && problem > 7){
-                     for (int i = 0; i < mesh.GetNV(); i++)
-                     { mesh.GetVertex(i)[0] -= (Sx - 1.0) / 2.0; }
-                  }
-               }
+            mesh = Mesh::MakeCartesian1D(nx, Sx);
+            mesh.GetBdrElement(0)->SetAttribute(1);
+            mesh.GetBdrElement(1)->SetAttribute(1);
          }
          if (dim == 2)
          {
@@ -618,7 +589,7 @@ int main(int argc, char *argv[])
       }
       mesh.EnsureNCMesh();
    }
-   
+
    if(dim == 1 && myid == 0){cout << "Serial dx = " << (Sx / (mesh.GetNV()-1)) << std::endl;}
    if(dim == 1 && myid == 0){cout << "Serial dx^2 = " << (Sx / (mesh.GetNV()-1))*(Sx / (mesh.GetNV()-1)) << std::endl;}
    if(dim == 2 && myid == 0){cout << "Serial dx^2 is about " << Sx*Sy / mesh.GetNV() << std::endl;}
@@ -633,6 +604,12 @@ int main(int argc, char *argv[])
    ParMesh pmesh(MPI_COMM_WORLD, mesh, mpi_partitioning.GetData());
    mesh.Clear();
    for (int lev = 0; lev < rp_levels; lev++) { pmesh.UniformRefinement(); }
+   SetMaterialMeshSpacing(pmesh);
+   if (problem == 19 && myid == 0)
+   {
+      cout << "Problem 19 material transition width: "
+           << material_transition_points << " mesh spacing(s)." << endl;
+   }
 
    int NE = pmesh.GetNE(), ne_min, ne_max;
    MPI_Reduce(&NE, &ne_min, 1, MPI_INT, MPI_MIN, 0, pmesh.GetComm());
@@ -688,8 +665,6 @@ int main(int argc, char *argv[])
 
    const HYPRE_BigInt glob_size_l2 = L2FESpace.GlobalTrueVSize();
    const HYPRE_BigInt glob_size_h1 = H1FESpace.GlobalTrueVSize();
-   const HYPRE_BigInt glob_size_h1_scal = H1FEScalarSpace.GlobalTrueVSize();
-
    if (Mpi::Root())
    {
       cout << "Number of kinematic (position, velocity) dofs: "
@@ -702,7 +677,6 @@ int main(int argc, char *argv[])
    // - 0 -> position
    // - 1 -> velocity
    // - 2 -> specific internal energy
-   // - 3 -> igr pressure
    const int Vsize_l2 = L2FESpace.GetVSize();
    const int Vsize_h1 = H1FESpace.GetVSize();
    const int Vsize_igr = H1FEScalarSpace.GetVSize();
@@ -713,13 +687,6 @@ int main(int argc, char *argv[])
    offset[3] = offset[2] + Vsize_l2;
    offset[4] = offset[3] + Vsize_igr;
    BlockVector S(offset, Device::GetMemoryType());
-
-   if (Mpi::Root()) {
-    cout << "H1 scalar TrueVSize: " << glob_size_h1_scal << endl;
-    cout << "H1 vector TrueVSize / dim: " << glob_size_h1/pmesh.Dimension() << endl;
-    cout << "Vsize_igr (local GetVSize): " << Vsize_igr << endl;
-    cout << "Vsize_h1/dim (local): " << Vsize_h1/pmesh.Dimension() << endl;
-}
 
    // Define GridFunction objects for the position, velocity and specific
    // internal energy. There is no function for the density, as we can always
@@ -738,9 +705,7 @@ int main(int argc, char *argv[])
 
    // Initialize the velocity.
    VectorFunctionCoefficient v_coeff(pmesh.Dimension(), v0);
-   real_t Mach = (problem == 11) ? blast_energy : 1.0;
-   ScalarVectorProductCoefficient v_coeff_scaled(Mach, v_coeff);
-   v_gf.ProjectCoefficient(v_coeff_scaled);
+   v_gf.ProjectCoefficient(v_coeff);
    for (int i = 0; i < ess_vdofs.Size(); i++)
    {
       v_gf(ess_vdofs[i]) = 0.0;
@@ -758,11 +723,11 @@ int main(int argc, char *argv[])
    FunctionCoefficient rho0_coeff(rho0);
    L2_FECollection l2_fec(order_e, dim);
    ParFiniteElementSpace l2_fes(&pmesh, &l2_fec);
-   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes), l2_one(&l2_fes);;
+   ParGridFunction l2_rho0_gf(&l2_fes), l2_e(&l2_fes), l2_one(&l2_fes), l2_be2(&l2_fes), l2_be3(&l2_fes);
    l2_rho0_gf.ProjectCoefficient(rho0_coeff);
    rho0_gf.ProjectGridFunction(l2_rho0_gf);
+   if (problem == 19) { BoundGridFunction(rho0_gf, 0.2, 1.0); }
 
-   
    double blast_position[] = {0.0, 0.0, 0.0};
    if(!corner){for(int i=0; i<3; i++){blast_position[i] = 0.5;}}
    if (problem == 1)
@@ -771,13 +736,9 @@ int main(int argc, char *argv[])
       // divide amount of blast energy by 2^d due to simulating only a portion
       // of the symmetric blast.
       DeltaCoefficient e_coeff(blast_position[0], blast_position[1],
-                               blast_position[2], blast_energy / (corner ? pow(2, dim) : 1.0));
+                               blast_position[2], blast_energy / pow(2, dim));
       e_coeff.SetTol(delta_tol);
       l2_e.ProjectCoefficient(e_coeff);
-
-      ConstantCoefficient reg(e_reg);
-	   l2_one.ProjectCoefficient(reg);
-      l2_e += l2_one;
 
       int non_finite = l2_e.CheckFinite();
       MPI_Allreduce(MPI_IN_PLACE, &non_finite, 1, MPI_INT, MPI_SUM, pmesh.GetComm());
@@ -793,9 +754,26 @@ int main(int argc, char *argv[])
 	  ConstantCoefficient reg(e_reg);
 	  l2_one.ProjectCoefficient(reg);
 	  
-	  Gaussian smoothblast(variance, blast_energy);
+	  Gaussian smoothblast(variance, blast_energy, 
+              blast_position[0], blast_position[1], blast_position[2]);
       l2_e.ProjectCoefficient(smoothblast);
 	  l2_e += l2_one;
+   }
+   else if(problem == 20){
+     ConstantCoefficient reg(e_reg);
+	  l2_one.ProjectCoefficient(reg);
+	  
+	  Gaussian smoothblast1(2*variance, blast_energy*8, 0.35, 0.35, 0.35);
+     Gaussian smoothblast2(variance/2, blast_energy/2, 0.425, 0.68, 0.74);
+     Gaussian smoothblast3(variance, blast_energy*2, 0.65, 0.5, 0.575);
+     
+     l2_e.ProjectCoefficient(smoothblast1);
+     l2_be2.ProjectCoefficient(smoothblast2);
+     l2_be3.ProjectCoefficient(smoothblast3);
+	  l2_e += l2_one;
+     l2_e += l2_be2;
+     l2_e += l2_be3;
+
    }
    else
    {
@@ -803,6 +781,12 @@ int main(int argc, char *argv[])
       l2_e.ProjectCoefficient(e_coeff);
    }
    e_gf.ProjectGridFunction(l2_e);
+   if (problem == 19)
+   {
+      double e_min, e_max;
+      Case19EnergyBounds(e_min, e_max);
+      BoundGridFunction(e_gf, e_min, e_max);
+   }
    // Sync the data location of e_gf with its base, S
    e_gf.SyncAliasMemory(S);
 
@@ -818,43 +802,46 @@ int main(int argc, char *argv[])
    mat_gf.ProjectCoefficient(mat_coeff);
 
    // Additional details, depending on the problem.
-   int source = 0; bool visc = true, vorticity = false;
+   int source = 0; bool visc = false, vorticity = false;
    switch (problem)
    {
-      case 0: if (dim == 2) { source = 1; } visc = false; break;
-      case 1: visc = true; break;
-      case 2: visc = true; break;
-      case 3: visc = true; S.HostRead(); break;
-      case 4: visc = false; break;
-      case 5: visc = true; break;
-      case 6: visc = true; break;
-      case 7: source = 2; visc = true; vorticity = true;  break;
-      case 8: visc = true; break;
-	   case 9: visc = false; break;
-	   case 10: visc = false; break;
-      case 11: visc = false; break;
-      case 12: visc = false; break;
-      case 13: visc = false; break;
-      case 14: visc = false; break;
-      case 15: visc = true; S.HostRead(); break;
-      case 16: visc = true; S.HostRead(); break;
+      case 0: if (dim == 2) { source = 1; } break;
+      case 1: break;
+      case 2: break;
+      case 3: S.HostRead(); break;
+      case 4: break;
+      case 5: break;
+      case 6: break;
+      case 7: source = 2; vorticity = true;  break;
+      case 8: break;
+	   case 9: break;
+	   case 10: break;
+      case 11: break;
+      case 12: break;
+      case 13: break;
+      case 14: break;
+      case 15: S.HostRead(); break;
+      case 16: S.HostRead(); break;
+      case 17: break;
+      case 18: break;
+      case 19: break;
+      case 20: break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
-   if(visc_type == 1){visc_const = -1;}
-   if (impose_visc || visc_const > 0) { visc = true; }
-   
+   if (impose_visc) { visc = true; }
 
-   hydrodynamics::LagrangianIGRHydroOperator hydro(S.Size(),
-                                                H1FESpace, H1FEScalarSpace, L2FESpace, ess_tdofs,
+   hydrodynamics::LagrangianHydroOperator hydro(S.Size(),
+                                                H1FESpace, H1FEScalarSpace, L2FESpace, 
+                                                ess_tdofs,
                                                 rho0_coeff, rho0_gf,
                                                 mat_gf, source, cfl,
                                                 visc, vorticity, p_assembly,
                                                 cg_tol, cg_max_iter, ftz_tol,
-                                                order_q, useIGR);
-   hydro.SetAlpha(alpha);
-   if(visc_const > 0){ hydro.SetViscConst(visc_const); }
+                                                order_q, useIGR,
+                                                alpha, alpha_type, false,
+                                                C_epsilon);
+   hydro.SetViscConst(visc_const);
    hydro.SetViscType(visc_type);
-   hydro.SetAlphaType(alpha_type);
 
    socketstream vis_rho, vis_v, vis_e, vis_igr;
    char vishost[] = "localhost";
@@ -873,6 +860,7 @@ int main(int argc, char *argv[])
       vis_rho.precision(8);
       vis_v.precision(8);
       vis_e.precision(8);
+      vis_igr.precision(8);
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
       int offx = Ww+10; // window offsets
@@ -891,7 +879,7 @@ int main(int argc, char *argv[])
       if(useIGR){
             hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
                                        "IGR", Wx, Wy, Ww, Wh);
-	  }
+	   }
    }
 
    // Save data for VisIt visualization.
@@ -912,6 +900,7 @@ int main(int argc, char *argv[])
    ode_solver->Init(hydro);
    hydro.ResetTimeStepEstimate();
    double t = 0.0, dt = hydro.GetTimeStepEstimate(S), t_old;
+   if(dtmax > 0 && dt >dtmax){ dt = dtmax;}
    bool last_step = false;
    int steps = 0;
    BlockVector S_old(S);
@@ -919,9 +908,7 @@ int main(int argc, char *argv[])
    long dmem = 0, dmmax = 0, dmsum = 0;
    int checks = 0;
 
-
-
-   const char *igr_suffix = "", *igr_folder = "WithIGR/";
+      const char *igr_suffix = "", *igr_folder = "WithIGR/";
    std::string problem_folder = "p" + std::to_string(problem) + "/", visc_suffix = "", alpha_folder = "";
    if(!useIGR){
       igr_suffix = "_noigr";
@@ -950,18 +937,23 @@ int main(int argc, char *argv[])
    double para_vis_dt = t_final / frames;
    double para_next_vis_time = 0.0;
    int para_vis_cycle = 0;
+   const int output_rs_levels = (rs_levels == 0) ? nx : rs_levels;
    std::string folder = std::string(ParaPre) + igr_folder + alpha_folder + "p" + std::to_string(problem);
+   const std::string material_width_suffix =
+      (problem == 19) ? "_mpts" + std::to_string(material_transition_points) : "";
    std::string run_name = "Laghos_" + std::to_string(problem) + "_" +
-                       std::to_string(rs_levels) + "_" +
+                       "dim" + std::to_string(dim) + "_" +
+                       std::to_string(output_rs_levels) + "_" +
                        std::to_string(order_v) +
                        std::to_string(order_e) +
                        std::to_string(ode_solver_type) +
                        std::to_string(visc_type) +
                        std::to_string(alpha_type) + "_" +
+                       std::to_string(sharpness) + material_width_suffix + "_" +
                        t_str + igr_suffix + visc_suffix;
 
    
-   ParaViewDataCollection pvdc("TestP9", &pmesh);
+   ParaViewDataCollection pvdc(run_name, &pmesh);
    if(paraview){
       pvdc.SetPrefixPath(folder);
       pvdc.SetLevelsOfDetail(order_v);
@@ -1006,19 +998,6 @@ int main(int argc, char *argv[])
    int ti = 1;
    for (; !last_step; ti++)
    {
-     if(t < stallIGR){
-		  hydro.UpdateUseVisc(true);
-		  hydro.UpdateUseIGR(false);
-	  } else if(t < stallIGR + 0.2){
-		  hydro.UpdateUseVisc(true);
-		  hydro.UpdateUseIGR(useIGR);
-	  } else{
-		  hydro.UpdateUseIGR(useIGR);
-		  hydro.UpdateUseVisc(visc);
-	  }
-
-
-
 #ifdef LAGHOS_USE_CALIPER
       CALI_CXX_MARK_LOOP_ITERATION(mainloop_annotation, static_cast<int>(ti));
 #endif
@@ -1034,7 +1013,6 @@ int main(int argc, char *argv[])
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
-      if(dtmax > 0 && dt >dtmax){ dt = dtmax;}
       ode_solver->Step(S, t, dt);
       steps++;
 
@@ -1065,7 +1043,12 @@ int main(int argc, char *argv[])
          t_final = t;
          last_step = true;
       }
-      
+      if (requested_parabolic && !parabolic)
+      {
+         hydro.UpdateParabolic(true);
+         parabolic = true;
+         hydro.ResetQuadratureData();
+      }
 
       // Ensure the sub-vectors x_gf, v_gf, and e_gf know the location of the
       // data in S. This operation simply updates the Memory validity flags of
@@ -1231,15 +1214,13 @@ int main(int argc, char *argv[])
    if (gfprint)
    {
       std::ostringstream mesh_name, rho_name, v_name, e_name, igr_name;
-
-      if(rs_levels == 0){rs_levels = nx;}
       
-      if(Mpi::Root()){std::cout << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix << visc_suffix << "\n";}
-      mesh_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix << visc_suffix << "_mesh";
-      rho_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix << visc_suffix << "_rho";
-      v_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix << visc_suffix << "_v";
-      e_name << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix << visc_suffix << "_e";
-      igr_name  << basename << igr_folder << alpha_folder << problem_folder << "Laghos_" << problem << "_" << rs_levels << "_" << order_v << order_e << ode_solver_type << visc_type << alpha_type << "_" << t_str << igr_suffix<< visc_suffix<< "_igr";
+      if(Mpi::Root()){std::cout << basename << igr_folder << alpha_folder << problem_folder << run_name << "\n";}
+      mesh_name << basename << igr_folder << alpha_folder << problem_folder << run_name << "_mesh";
+      rho_name  << basename << igr_folder << alpha_folder << problem_folder << run_name << "_rho";
+      v_name << basename << igr_folder << alpha_folder << problem_folder << run_name << "_v";
+      e_name << basename << igr_folder << alpha_folder << problem_folder << run_name << "_e";
+      igr_name  << basename << igr_folder << alpha_folder << problem_folder << run_name << "_igr";
       std::ofstream mesh_ofs(mesh_name.str().c_str());
       mesh_ofs.precision(8);
       pmesh.PrintAsOne(mesh_ofs);
@@ -1271,6 +1252,7 @@ int main(int argc, char *argv[])
       igr_gf.SaveAsOne(igr_ofs);
       igr_ofs.close();
    }
+
 
 
 #ifdef LAGHOS_USE_CALIPER
@@ -1351,6 +1333,18 @@ int main(int argc, char *argv[])
 
 #ifdef LAGHOS_USE_CALIPER
    adiak::fini();
+#endif
+
+#ifdef LAGHOS_USE_DEVICE_UMPIRE
+   if (Mpi::Root())
+   {
+      cout << "Umpire device memory pool size: " << dev_pool_size << " GB" << endl;
+      cout << "Umpire device memory high water mark: " << getDeviceMemoryHighWatermark() << " GB" << endl;
+#ifdef LAGHOS_USE_CALIPER
+      adiak::value("umpire_device_pool_size", dev_pool_size);
+      adiak::value("umpire_device_high_water_mark", getDeviceMemoryHighWatermark());
+#endif
+   }
 #endif
 
    if (check_exact_sedov)
@@ -1479,6 +1473,20 @@ double rho0(const Vector &x)
       case 16: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
                         : x(0) > 1.0 && ((x(1) < 1.5 && x(2) < 1.5) ||
                                          (x(1) > 1.5 && x(2) > 1.5)) ? 0.125 : 1.0;
+      case 17: return (dim == 2) ? (0.5 + 0.5*tanh(-200*sharpness*(x(0)-0.59375)))
+                                 + (0.5 + 0.5*tanh(200*sharpness*(x(0)-0.59375)))*(0.4 - 0.2*tanh(200*sharpness*(x(1)-0.5)))
+                        : 0.6 + 0.4*tanh(200*sharpness*(0.59375-x(0)));
+      case 18:
+      {
+         double rho1 = 0.5;
+         double rho2 = 0.2;
+         double rho3 = 1.5;
+         double lambda = 0.5 + 0.5*tanh(sharpness*(x(0)-2.5));
+         return (1-lambda)*((rho1-rho2)/2.0*(1.0-tanh(sharpness*(x(0)-Sx/4))) + rho2) 
+         + lambda*((rho2-rho3)/2.0*(1.0-tanh(sharpness*(x(0)-Sx*7/10+Sx/30*cos(2*M_PI*x(1)/Sy)))) + rho3);
+      }
+      case 19: return Case19Density(x);
+      case 20: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1512,6 +1520,12 @@ double gamma_func(const Vector &x)
       case 16:
          if (dim == 1) { return (x(0) > 0.5) ? 1.4 : 1.5; }
          else { return (x(0) > 1.0 && x(1) <= 1.5) ? 1.4 : 1.5; }
+      case 17: return (dim == 2) ? (0.65 + 0.65*tanh(-200*sharpness*(x(0)-0.59375)))
+                                 + (0.5 + 0.5*tanh(200*sharpness*(x(0)-0.59375)))*(1.3 + 0.1*tanh(200*sharpness*(x(1)-0.5)))
+                       : 1.4 + 0.1*tanh(200*sharpness*(x(0)-0.59375));
+      case 18: return 1.4; 
+      case 19: return Case19Gamma(x);
+      case 20: return 1.4;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1609,6 +1623,27 @@ void v0(const Vector &x, Vector &v)
       }
       case 15: v = 0.0; break;
       case 16: v = 0.0; break;
+      case 17:
+      {
+         v = 0.0;
+         v(0) = tanh(50*(x(0) - 0.3)) + tanh(50*(0.5 - x(0)));
+         break;
+      }
+      case 18:
+      {
+         v = 0.0;
+         double Us = 1.0;
+         v(0) = Us/2.0*(tanh(sharpness*(x(0) - Sx/8)/4)
+                        - tanh(sharpness*(x(0) - Sx*0.55)));
+         break;
+      }
+      case 19:
+      {
+         v = 0.0;
+         v(0) = tanh(50*(x(0) - 0.3)) + tanh(50*(0.5 - x(0)));
+         break;
+      }
+      case 20: v = 0.0; break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1694,15 +1729,135 @@ double e0(const Vector &x)
       case 16:
       { 
          
-         double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
-         double smooth_e = lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
-         double smooth_rho = lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
-         double smooth_gamma = lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
-         double smooth_p = (smooth_gamma - 1)*smooth_rho*smooth_e;
 
+         double smooth_p = 0.55-0.45*tanh(sharpness*(x(0)-1.0));
          return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
       }
+      case 17:
+      { 
+         const double p0 = 1.0;
+         return p0 / (gamma_func(x) - 1.0) / rho0(x);
+      }
+      case 18:
+      {
+         double phs = 4.5;
+         double p0 = 1.0;
+         double smooth_p = (phs-p0)/2.0*(1.0-tanh(sharpness*(x(0)-Sx/4))) + p0;
+         return smooth_p / (gamma_func(x) - 1.0) / rho0(x);
+      }
+      case 19:
+      {
+         const double p0 = 1.0;
+         return p0 / (gamma_func(x) - 1.0) / rho0(x);
+      }
+      case 20: return 0.0; // This case in initialized in main().
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
+   }
+}
+
+static double Case19Transition(double x, double x0, double h)
+{
+   const double width = material_transition_points*h;
+   if (width <= 0.0) { return (x < x0) ? 0.0 : 1.0; }
+
+   const double t = (x - (x0 - 0.5*width)) / width;
+   if (t <= 0.0) { return 0.0; }
+   if (t >= 1.0) { return 1.0; }
+   return t;
+}
+
+static double Case19Density(const Vector &x)
+{
+   const double sx = Case19Transition(x(0), 0.59375, material_mesh_h[0]);
+   if (dim == 2)
+   {
+      const double sy = Case19Transition(x(1), 0.5, material_mesh_h[1]);
+      const double right_density = (1.0 - sy)*0.6 + sy*0.2;
+      return (1.0 - sx)*1.0 + sx*right_density;
+   }
+   return (1.0 - sx)*1.0 + sx*0.2;
+}
+
+static double Case19Gamma(const Vector &x)
+{
+   const double sx = Case19Transition(x(0), 0.59375, material_mesh_h[0]);
+   if (dim == 2)
+   {
+      const double sy = Case19Transition(x(1), 0.5, material_mesh_h[1]);
+      const double right_gamma = (1.0 - sy)*1.2 + sy*1.4;
+      return (1.0 - sx)*1.3 + sx*right_gamma;
+   }
+   return (1.0 - sx)*1.3 + sx*1.5;
+}
+
+static void Case19EnergyBounds(double &emin, double &emax)
+{
+   emin = std::numeric_limits<double>::infinity();
+   emax = 0.0;
+
+   const double states_1d[][2] = {{1.0, 1.3}, {0.2, 1.5}};
+   const double states_2d[][2] = {{1.0, 1.3}, {0.6, 1.2}, {0.2, 1.4}};
+   const double (*states)[2] = (dim == 2) ? states_2d : states_1d;
+   const int num_states = (dim == 2) ? 3 : 2;
+
+   for (int i = 0; i < num_states; i++)
+   {
+      const double rho = states[i][0];
+      const double gamma = states[i][1];
+      const double e = 1.0 / ((gamma - 1.0)*rho);
+      emin = std::min(emin, e);
+      emax = std::max(emax, e);
+   }
+}
+
+static void BoundGridFunction(ParGridFunction &gf, double min_val, double max_val)
+{
+   gf.HostReadWrite();
+   for (int i = 0; i < gf.Size(); i++)
+   {
+      if (gf(i) < min_val) { gf(i) = min_val; }
+      else if (gf(i) > max_val) { gf(i) = max_val; }
+   }
+}
+
+static void SetMaterialMeshSpacing(const ParMesh &pmesh)
+{
+   const double inf = std::numeric_limits<double>::infinity();
+   double local_min[3] = {inf, inf, inf};
+   Array<int> vertices;
+
+   for (int e = 0; e < pmesh.GetNE(); e++)
+   {
+      pmesh.GetElementVertices(e, vertices);
+      double min_coord[3] = {inf, inf, inf};
+      double max_coord[3] = {-inf, -inf, -inf};
+
+      for (int i = 0; i < vertices.Size(); i++)
+      {
+         const real_t *coord = pmesh.GetVertex(vertices[i]);
+         for (int d = 0; d < pmesh.Dimension(); d++)
+         {
+            min_coord[d] = std::min(min_coord[d], coord[d]);
+            max_coord[d] = std::max(max_coord[d], coord[d]);
+         }
+      }
+
+      for (int d = 0; d < pmesh.Dimension(); d++)
+      {
+         const double extent = max_coord[d] - min_coord[d];
+         if (extent > 0.0) { local_min[d] = std::min(local_min[d], extent); }
+      }
+   }
+
+   double global_min[3];
+   MPI_Allreduce(local_min, global_min, 3, MPI_DOUBLE, MPI_MIN, pmesh.GetComm());
+
+   for (int d = 0; d < pmesh.Dimension(); d++)
+   {
+      if (std::isfinite(global_min[d]) && global_min[d] > 0.0)
+      {
+         material_mesh_h[d] = global_min[d];
+      }
    }
 }
 
@@ -1716,6 +1871,66 @@ static void display_banner(std::ostream &os)
       << "   /_____/\\__,_/\\__, /_/ /_/\\____/____/  " << endl
       << "               /____/                       " << endl << endl;
 }
+
+#ifdef LAGHOS_USE_CALIPER
+static void RecordAdiakMetadata(int dim, const char *mesh_file, int elem_per_mpi,
+                                int nx, int ny, int nz, double blast_energy,
+                                double Sx, double Sy, double Sz,
+                                int rs_levels, int rp_levels, int problem,
+                                int order_v, int order_e, int order_q,
+                                int ode_solver_type, double t_final, double cfl,
+                                double cg_tol, double ftz_tol, double delta_tol,
+                                int cg_max_iter, int max_tsteps,
+                                bool p_assembly, bool impose_visc,
+                                bool visualization, int vis_steps, bool visit,
+                                bool gfprint, const char *basename,
+                                const char *device, bool check,
+                                bool check_exact_sedov, bool mem_usage,
+                                bool fom, bool gpu_aware_mpi, int dev_pool_size,
+                                bool enable_nc, int dev)
+{
+   adiak::value("dimension", dim);
+   adiak::value("mesh", std::string(mesh_file));
+   adiak::value("elem-per-mpi", elem_per_mpi);
+   adiak::value("xelems", nx);
+   adiak::value("yelems", ny);
+   adiak::value("zelems", nz);
+   adiak::value("blast-energy", blast_energy);
+   adiak::value("xwidth", (double)Sx);
+   adiak::value("ywidth", (double)Sy);
+   adiak::value("zwidth", (double)Sz);
+   adiak::value("refine-serial", rs_levels);
+   adiak::value("refine-parallel", rp_levels);
+   adiak::value("problem", problem);
+   adiak::value("order-kinematic", order_v);
+   adiak::value("order-thermo", order_e);
+   adiak::value("order-intrule", order_q);
+   adiak::value("ode-solver", ode_solver_type);
+   adiak::value("t-final", t_final);
+   adiak::value("cfl", cfl);
+   adiak::value("cg-tol", cg_tol);
+   adiak::value("ftz-tol", ftz_tol);
+   adiak::value("delta-tol", delta_tol);
+   adiak::value("cg-max-steps", cg_max_iter);
+   adiak::value("max-steps", max_tsteps);
+   adiak::value("partial-assembly", (int)p_assembly);
+   adiak::value("impose-viscosity", (int)impose_visc);
+   adiak::value("visualization", (int)visualization);
+   adiak::value("visualization-steps", vis_steps);
+   adiak::value("visit", (int)visit);
+   adiak::value("print", (int)gfprint);
+   adiak::value("outputfilename", std::string(basename));
+   adiak::value("device", std::string(device));
+   adiak::value("checks", (int)check);
+   adiak::value("exact-error", (int)check_exact_sedov);
+   adiak::value("mem", (int)mem_usage);
+   adiak::value("fom", (int)fom);
+   adiak::value("gpu-aware-mpi", (int)gpu_aware_mpi);
+   adiak::value("dev-pool-size", dev_pool_size);
+   adiak::value("conforming", (int)enable_nc);
+   adiak::value("dev", dev);
+}
+#endif
 
 static long GetMaxRssMB()
 {
