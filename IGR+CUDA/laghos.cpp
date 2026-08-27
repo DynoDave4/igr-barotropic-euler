@@ -53,8 +53,9 @@
 //    p = 16 --> Smooth Pressure Triple Point but gamma0, e0, rho0 discontinuous 
 //    p = 17 --> 1d Shock hits material
 //    p = 18 --> Richtmeyer Meshkov
-//    p = 19 --> Case 17 with a monotone mesh-width material transition
+//    p = 19 --> Case 17 with a monotone mesh-widths material transition... in progress
 //    p = 20 --> Multiple Blasts
+//    p = 21 --> Pure Shear Problem
 //
 // Sample runs: see README.md, section 'Verification of Results'.
 //
@@ -243,6 +244,7 @@ int main(int argc, char *argv[])
    const char *ParaPre = "ParaView/";
    bool paraview = false;
    bool parabolic = false;
+   int adapt = 0;
    int frames = 100;
    double dtmax = -1;
 
@@ -386,6 +388,8 @@ int main(int argc, char *argv[])
    args.AddOption(&parabolic, "-parabolic", "--parabolic-igr-calc", "-no-parabolic",
                   "--no-parabolic-igr-calc",
                   "Do we calculate IGR pressure with a conservation law?");
+   args.AddOption(&adapt, "-adapt", "--adapt",
+                  "Adaptivity mode passed to the hydrodynamics operator.");
    args.AddOption(&frames, "-frames", "--frames",
                   "Number of ParaView frames.");
    args.AddOption(&dtmax, "-dtmax", "--dt-max",
@@ -826,6 +830,7 @@ int main(int argc, char *argv[])
       case 18: break;
       case 19: break;
       case 20: break;
+      case 21: break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -839,7 +844,7 @@ int main(int argc, char *argv[])
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q, useIGR,
                                                 alpha, alpha_type, false,
-                                                C_epsilon);
+                                                C_epsilon, adapt);
    hydro.SetViscConst(visc_const);
    hydro.SetViscType(visc_type);
 
@@ -1487,6 +1492,7 @@ double rho0(const Vector &x)
       }
       case 19: return Case19Density(x);
       case 20: return 1.0;
+      case 21: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1526,6 +1532,7 @@ double gamma_func(const Vector &x)
       case 18: return 1.4; 
       case 19: return Case19Gamma(x);
       case 20: return 1.4;
+      case 21: return 1.4;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1644,6 +1651,8 @@ void v0(const Vector &x, Vector &v)
          break;
       }
       case 20: v = 0.0; break;
+      case 21: v = 0.0; v(0) = tanh(sharpness*(x(1) - 1.5)); 
+               v(0) *= tanh(sharpness*(x(0) - 1)/3) - tanh(sharpness*(x(0) - 6)/3);   break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1751,6 +1760,7 @@ double e0(const Vector &x)
          return p0 / (gamma_func(x) - 1.0) / rho0(x);
       }
       case 20: return 0.0; // This case in initialized in main().
+      case 21: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }

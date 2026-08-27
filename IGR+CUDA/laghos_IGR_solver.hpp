@@ -121,6 +121,7 @@ protected:
    mutable HypreSmoother jacobi_prec;
    double alpha = 0.001;
    bool parabolic = false;
+   int adapt = 0;
    double C_epsilon = 128.0;
    int at = 1;
    mutable ParGridFunction alpha_gf;
@@ -215,7 +216,7 @@ public:
                            const double cgt, const int cgiter, double ftz_tol,
                            const int order_q, bool useIGR_,
                            double alpha_, int alpha_type_, bool parabolic_,
-                           double C_epsilon_);
+                           double C_epsilon_, int adapt_);
    ~LagrangianHydroOperator();
 
    //New IGR Methods
