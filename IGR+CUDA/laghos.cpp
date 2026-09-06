@@ -53,9 +53,8 @@
 //    p = 16 --> Smooth Pressure Triple Point but gamma0, e0, rho0 discontinuous 
 //    p = 17 --> 1d Shock hits material
 //    p = 18 --> Richtmeyer Meshkov
-//    p = 19 --> Case 17 with a monotone mesh-widths material transition... in progress
+//    p = 19 --> Case 17 with a monotone mesh-width material transition
 //    p = 20 --> Multiple Blasts
-//    p = 21 --> Pure Shear Problem
 //
 // Sample runs: see README.md, section 'Verification of Results'.
 //
@@ -244,7 +243,6 @@ int main(int argc, char *argv[])
    const char *ParaPre = "ParaView/";
    bool paraview = false;
    bool parabolic = false;
-   int adapt = 0;
    int frames = 100;
    double dtmax = -1;
 
@@ -388,8 +386,6 @@ int main(int argc, char *argv[])
    args.AddOption(&parabolic, "-parabolic", "--parabolic-igr-calc", "-no-parabolic",
                   "--no-parabolic-igr-calc",
                   "Do we calculate IGR pressure with a conservation law?");
-   args.AddOption(&adapt, "-adapt", "--adapt",
-                  "Adaptivity mode passed to the hydrodynamics operator.");
    args.AddOption(&frames, "-frames", "--frames",
                   "Number of ParaView frames.");
    args.AddOption(&dtmax, "-dtmax", "--dt-max",
@@ -554,6 +550,18 @@ int main(int argc, char *argv[])
             mesh = Mesh::MakeCartesian1D(nx, Sx);
             mesh.GetBdrElement(0)->SetAttribute(1);
             mesh.GetBdrElement(1)->SetAttribute(1);
+
+            // Preserve the centered 1D domain used by the previous Scal3/4
+            // problem setups when a non-unit width is requested. In
+            // particular, p14 with -Sx 2 uses [-0.5, 1.5], so its fixed
+            // initial-condition features remain in their historical places.
+            if (Sx != 1.0 && problem > 7)
+            {
+               for (int i = 0; i < mesh.GetNV(); i++)
+               {
+                  mesh.GetVertex(i)[0] -= (Sx - 1.0) / 2.0;
+               }
+            }
          }
          if (dim == 2)
          {
@@ -830,7 +838,6 @@ int main(int argc, char *argv[])
       case 18: break;
       case 19: break;
       case 20: break;
-      case 21: break;
       default: MFEM_ABORT("Wrong problem specification!");
    }
    if (impose_visc) { visc = true; }
@@ -844,16 +851,26 @@ int main(int argc, char *argv[])
                                                 cg_tol, cg_max_iter, ftz_tol,
                                                 order_q, useIGR,
                                                 alpha, alpha_type, false,
-                                                C_epsilon, adapt);
+                                                C_epsilon);
    hydro.SetViscConst(visc_const);
    hydro.SetViscType(visc_type);
 
-   socketstream vis_rho, vis_v, vis_e, vis_igr;
+   socketstream vis_rho, vis_v, vis_e, vis_igr, vis_p;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
    ParGridFunction rho_gf;
+   const bool plot_pressure = (problem == 3 || problem == 15 || problem == 16);
+   ParGridFunction p_gf(&L2FESpace);
+   GridFunctionCoefficient rho_gf_coeff(&rho_gf);
+   GridFunctionCoefficient e_gf_coeff(&e_gf);
+   GridFunctionCoefficient gamma_gf_coeff(&mat_gf);
+   ConstantCoefficient minus_one(-1.0);
+   SumCoefficient gamma_minus_one(gamma_gf_coeff, minus_one);
+   ProductCoefficient rho_e(rho_gf_coeff, e_gf_coeff);
+   ProductCoefficient pressure_coeff(gamma_minus_one, rho_e);
    if (visualization || visit) { hydro.ComputeDensity(rho_gf); }
+   if (visualization && plot_pressure) { p_gf.ProjectCoefficient(pressure_coeff); }
    const double energy_init = hydro.InternalEnergy(e_gf) +
                               hydro.KineticEnergy(v_gf);
 
@@ -866,6 +883,7 @@ int main(int argc, char *argv[])
       vis_v.precision(8);
       vis_e.precision(8);
       vis_igr.precision(8);
+      vis_p.precision(8);
       int Wx = 0, Wy = 0; // window position
       const int Ww = 350, Wh = 350; // window size
       int offx = Ww+10; // window offsets
@@ -884,7 +902,13 @@ int main(int argc, char *argv[])
       if(useIGR){
             hydrodynamics::VisualizeField(vis_igr, vishost, visport, igr_gf,
                                        "IGR", Wx, Wy, Ww, Wh);
+	   Wx += offx;
 	   }
+      if (plot_pressure)
+      {
+         hydrodynamics::VisualizeField(vis_p, vishost, visport, p_gf,
+                                       "Pressure", Wx, Wy, Ww, Wh);
+      }
    }
 
    // Save data for VisIt visualization.
@@ -905,7 +929,6 @@ int main(int argc, char *argv[])
    ode_solver->Init(hydro);
    hydro.ResetTimeStepEstimate();
    double t = 0.0, dt = hydro.GetTimeStepEstimate(S), t_old;
-   if(dtmax > 0 && dt >dtmax){ dt = dtmax;}
    bool last_step = false;
    int steps = 0;
    BlockVector S_old(S);
@@ -958,21 +981,35 @@ int main(int argc, char *argv[])
                        t_str + igr_suffix + visc_suffix;
 
    
-   ParaViewDataCollection pvdc(run_name, &pmesh);
-   if(paraview){
+   auto save_paraview_frame = [&](int cycle, double time, bool restart)
+   {
+      ParaViewDataCollection pvdc(run_name, &pmesh);
       pvdc.SetPrefixPath(folder);
       pvdc.SetLevelsOfDetail(order_v);
       pvdc.SetDataFormat(VTKFormat::BINARY);
       pvdc.SetHighOrderOutput(true);
+      pvdc.UseRestartMode(restart);
    
       pvdc.RegisterField("density", &rho_gf);
       pvdc.RegisterField("velocity", &v_gf);
       pvdc.RegisterField("energy", &e_gf);
       pvdc.RegisterField("igr", &igr_gf);
 
-      pvdc.SetCycle(para_vis_cycle);
-      pvdc.SetTime(t);
+      pvdc.SetCycle(cycle);
+      pvdc.SetTime(time);
       pvdc.Save();
+
+      if (pvdc.Error() != DataCollection::No_Error && Mpi::Root())
+      {
+         mfem::err << "Failed to write ParaView frame " << cycle << endl;
+      }
+   };
+
+   if(paraview)
+   {
+      save_paraview_frame(para_vis_cycle, t, false);
+      para_vis_cycle++;
+      para_next_vis_time += para_vis_dt;
    }
    //   const double internal_energy = hydro.InternalEnergy(e_gf);
    //   const double kinetic_energy = hydro.KineticEnergy(v_gf);
@@ -1122,6 +1159,10 @@ int main(int argc, char *argv[])
          MPI_Barrier(pmesh.GetComm());
 
          if (visualization || visit || gfprint) { hydro.ComputeDensity(rho_gf); }
+         if (visualization && plot_pressure)
+         {
+            p_gf.ProjectCoefficient(pressure_coeff);
+         }
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
@@ -1145,6 +1186,11 @@ int main(int argc, char *argv[])
                                        "IGR", Wx, Wy, Ww, Wh);
 	            Wx += offx;
 	         }
+            if (plot_pressure)
+            {
+               hydrodynamics::VisualizeField(vis_p, vishost, visport, p_gf,
+                                             "Pressure", Wx, Wy, Ww, Wh);
+            }
          }
 
          if (visit)
@@ -1188,9 +1234,7 @@ int main(int argc, char *argv[])
       if(paraview){
          if (t >= para_next_vis_time || ti == 0)
          {
-            pvdc.SetCycle(para_vis_cycle);
-            pvdc.SetTime(t);
-            pvdc.Save();
+            save_paraview_frame(para_vis_cycle, t, true);
 
             para_next_vis_time += para_vis_dt;
             para_vis_cycle++;
@@ -1334,6 +1378,7 @@ int main(int argc, char *argv[])
    {
       vis_v.close();
       vis_e.close();
+      vis_p.close();
    }
 
 #ifdef LAGHOS_USE_CALIPER
@@ -1473,6 +1518,20 @@ double rho0(const Vector &x)
       case 15:
       {
          double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         if (dim == 3)
+         {
+            // Smooth version of the 3D problem 3 density.  On the right side,
+            // rho = 0.125 when y and z are on the same side of 1.5, and rho =
+            // 1.0 otherwise.
+            const double lambda_y =
+               0.5*tanh(sharpness*(x(1)-1.5)) + 0.5;
+            const double lambda_z =
+               0.5*tanh(sharpness*(x(2)-1.5)) + 0.5;
+            const double same_yz = lambda_y*lambda_z +
+                                   (1.0-lambda_y)*(1.0-lambda_z);
+            const double rho_right = 1.0 - 0.875*same_yz;
+            return lambda*rho_right + (1.0-lambda)*1.0;
+         }
          return lambda*(0.4375*tanh(sharpness*(1.5-x(1))) + 0.5625) + (1-lambda)*(1.0);
       } 
       case 16: return (dim == 2) ? (x(0) > 1.0 && x(1) > 1.5) ? 0.125 : 1.0
@@ -1492,7 +1551,6 @@ double rho0(const Vector &x)
       }
       case 19: return Case19Density(x);
       case 20: return 1.0;
-      case 21: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1521,6 +1579,15 @@ double gamma_func(const Vector &x)
       case 15:
       {
          double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         if (dim == 3)
+         {
+            // Problem 3 uses gamma = 1.4 below y = 1.5 on the right and
+            // gamma = 1.5 everywhere else; it is independent of z.
+            const double lambda_y =
+               0.5*tanh(sharpness*(x(1)-1.5)) + 0.5;
+            const double gamma_right = 1.4 + 0.1*lambda_y;
+            return lambda*gamma_right + (1.0-lambda)*1.5;
+         }
          return lambda*(0.05*tanh(sharpness*(x(1)-1.5)) + 1.45) + (1-lambda)*(1.5);
       } 
       case 16:
@@ -1532,7 +1599,6 @@ double gamma_func(const Vector &x)
       case 18: return 1.4; 
       case 19: return Case19Gamma(x);
       case 20: return 1.4;
-      case 21: return 1.4;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }
@@ -1651,8 +1717,6 @@ void v0(const Vector &x, Vector &v)
          break;
       }
       case 20: v = 0.0; break;
-      case 21: v = 0.0; v(0) = tanh(sharpness*(x(1) - 1.5)); 
-               v(0) *= tanh(sharpness*(x(0) - 1)/3) - tanh(sharpness*(x(0) - 6)/3);   break;
       default: MFEM_ABORT("Bad number given for problem id!");
    }
 }
@@ -1732,6 +1796,25 @@ double e0(const Vector &x)
       case 15:
       {
          double lambda = 0.5*tanh(sharpness*(x(0)-1.0))+0.5; // Left/ right "percentage" for convex combination
+         if (dim == 3)
+         {
+            // Smoothly blend the four right-side values of problem 3:
+            //
+            //                z < 1.5   z > 1.5
+            //   y < 1.5         2.0       0.25
+            //   y > 1.5         0.2       1.6
+            //
+            // These are e = p/(rho*(gamma-1)) with p = 0.1.
+            const double lambda_y =
+               0.5*tanh(sharpness*(x(1)-1.5)) + 0.5;
+            const double lambda_z =
+               0.5*tanh(sharpness*(x(2)-1.5)) + 0.5;
+            const double e_right =
+               (1.0-lambda_y)*((1.0-lambda_z)*2.0 +
+                               lambda_z*0.25) +
+               lambda_y*((1.0-lambda_z)*0.2 + lambda_z*1.6);
+            return lambda*e_right + (1.0-lambda)*2.0;
+         }
          //return lambda*(0.1 / rho0(x) / (gamma_func(x) - 1.0)) + (1-lambda)*(2.0);
          return lambda*(0.675*tanh(sharpness*(x(1)-1.5)) + 0.925) + (1-lambda)*(2.0);
       } 
@@ -1760,7 +1843,6 @@ double e0(const Vector &x)
          return p0 / (gamma_func(x) - 1.0) / rho0(x);
       }
       case 20: return 0.0; // This case in initialized in main().
-      case 21: return 1.0;
       default: MFEM_ABORT("Bad number given for problem id!"); return 0.0;
    }
 }

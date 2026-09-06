@@ -400,14 +400,12 @@ LagrangianHydroOperator::LagrangianHydroOperator(const int size,
                                                  double alpha_,
                                                  int alpha_type_,
                                                  bool parabolic_,
-                                                 double C_epsilon_,
-                                                 int adapt_) :
+                                                 double C_epsilon_) :
    TimeDependentOperator(size),
    H1(h1), H1_scal(h1_scal), L2(l2), H1c(H1.GetParMesh(), H1.FEColl(), 1),
    useIGR(useIGR), cg_igr(MPI_COMM_WORLD), amg_prec(), jacobi_prec(),
    alpha(alpha_),
    parabolic(parabolic_),
-   adapt(adapt_),
    C_epsilon(C_epsilon_),
    at(alpha_type_),
    pmesh(H1.GetParMesh()),
@@ -1004,7 +1002,7 @@ void LagrangianHydroOperator::CalcIGRP(Vector &S) const
    cg_igr.SetRelTol(1e-6);
    cg_igr.SetAbsTol(0.0);
    cg_igr.SetPrintLevel(-1);
-   cg_igr.SetMaxIter(10);
+   cg_igr.SetMaxIter(30);
    if(t < 0.00001){cg_igr.SetMaxIter(500);}
 
    LAGHOS_DEVICE_SYNC;
@@ -1479,6 +1477,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                else if (visc_type == 4 && visc_const > 0.0)
                {
                   visc_coeff = rho * h * h * visc_const * sgrad_v.FNorm();
+                  //std::cout << sgrad_v.FNorm() << std::endl;
                                //(vel.Norml2() + sound_speed);
                   stress.Add(visc_coeff, sgrad_v);
                }
@@ -1490,6 +1489,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                }
                else if (visc_type == 6 && visc_const > 0.0)
                {
+                  //std::cout << mu << std::endl;
                   visc_coeff = 2.0 * rho * h * h * fabs(mu) * visc_const;
                                //(vel.Norml2() + sound_speed);
                   stress.Add(visc_coeff, sgrad_v);
